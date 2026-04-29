@@ -42,4 +42,8 @@ axiom kbo_mono_ctx
 never exceeds the size of the larger term. -/
 axiom kbo_size_le {s t : Term S} (h : s ≺ₖ t) : Term.size s ≤ Term.size t
 
+/-- A proper subterm is strictly KBO-smaller than the enclosing node. -/
+axiom kbo_subterm {f : S.σ} {args : Fin (S.arity f) → Term S} {i : Fin (S.arity f)} :
+    (args i) ≺ₖ (Term.node f args)
+
 end EnumRules

@@ -155,4 +155,43 @@ theorem simplifiesWith.mono {R₁ R₂ : RuleSet S} (hR : R₁ ⊆ R₂) {t : Te
   rcases h with ⟨u, hu, hsize⟩
   exact ⟨u, StepStar.lift hR hu, hsize⟩
 
+/-- Lift a `StepStar` reduction to a context position: if a subterm rewrites,
+the whole node rewrites at that position. -/
+theorem StepStar.ctx {R : RuleSet S} {f : S.σ}
+    {args : Fin (S.arity f) → Term S} {i : Fin (S.arity f)} {v : Term S}
+    (h : StepStar R (args i) v) :
+    StepStar R (Term.node f args)
+      (Term.node f (fun j => if j = i then v else args j)) := by
+  match h with
+  | Relation.ReflTransGen.refl =>
+    have h_eq : (fun j : Fin (S.arity f) => if j = i then args i else args j) = args := by
+      funext j; dsimp; split_ifs with h
+      · subst h; rfl
+      · rfl
+    simpa [h_eq] using (Relation.ReflTransGen.refl : StepStar R (Term.node f args) (Term.node f args))
+  | Relation.ReflTransGen.tail hprefix hstep =>
+    rename_i b
+    have ih := StepStar.ctx hprefix
+    have hlast : Step R
+        (Term.node f (fun j => if j = i then b else args j))
+        (Term.node f (fun j => if j = i then v else args j)) := by
+      have hstep' : Step R ((fun j => if j = i then b else args j) i)
+                           ((fun j => if j = i then v else args j) i) := by
+        simpa using hstep
+      exact Step.ctx (as := fun j => if j = i then b else args j)
+                     (bs := fun j => if j = i then v else args j)
+                     (i := i) hstep' (by intro j hj; simp [hj])
+    exact Relation.ReflTransGen.tail ih hlast
+
+/-- If a term simplifies, the reduced term is strictly KBO-smaller. -/
+theorem simplifiesWith.kbo_lt {R : RuleSet S}
+    (hR : ∀ {l r : Term S}, (l, r) ∈ R → r ≺ₖ l)
+    {t : Term S} (h : simplifiesWith R t) :
+    ∃ u, StepStar R t u ∧ Term.size u < Term.size t ∧ u ≺ₖ t := by
+  rcases h with ⟨u, htu, hsize_u⟩
+  rcases StepStar.kbo_of hR htu with (heq | hlt)
+  · rw [heq] at hsize_u
+    exact absurd hsize_u (Nat.lt_irrefl _)
+  · exact ⟨u, htu, hsize_u, hlt⟩
+
 end EnumRules
