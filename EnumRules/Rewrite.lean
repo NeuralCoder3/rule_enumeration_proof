@@ -114,6 +114,45 @@ theorem size_of
   | refl => exact le_refl _
   | tail _ hlast ih => exact le_trans (Step.size_of hR hlast) ih
 
+/-- Reflexive-transitive version of `Step.kbo_of`. -/
+theorem kbo_of
+    {R : RuleSet S}
+    (hR : ∀ {l r : Term S}, (l, r) ∈ R → r ≺ₖ l)
+    {s t : Term S} (hst : StepStar R s t) : s = t ∨ kbo t s := by
+  induction hst with
+  | refl => exact Or.inl rfl
+  | tail hprefix hstep ih =>
+    rcases ih with (heq | hlt)
+    · subst heq; exact Or.inr (Step.kbo_of hR hstep)
+    · exact Or.inr (kbo_trans (Step.kbo_of hR hstep) hlt)
+
 end StepStar
+
+/-- Lift a single step to a larger rule set. -/
+theorem Step.lift {R₁ R₂ : RuleSet S} (hR : R₁ ⊆ R₂) {s t : Term S}
+    (h : Step R₁ s t) : Step R₂ s t := by
+  induction h with
+  | root hmem => exact Step.root (hR hmem)
+  | ctx hstep hrest ih => exact Step.ctx ih hrest
+
+/-- Lift a rewrite sequence to a larger rule set. -/
+theorem StepStar.lift {R₁ R₂ : RuleSet S} (hR : R₁ ⊆ R₂) {s t : Term S}
+    (h : StepStar R₁ s t) : StepStar R₂ s t := by
+  induction h with
+  | refl => exact Relation.ReflTransGen.refl
+  | tail hprefix hstep ih =>
+    exact Relation.ReflTransGen.tail ih (Step.lift hR hstep)
+
+/-- `simplifiesWith R t` holds when `t` can be rewritten by `R` to a term
+of strictly smaller size. This is used to skip SMT calls for terms already
+covered by rules from previous iterations. -/
+def simplifiesWith (R : RuleSet S) (t : Term S) : Prop :=
+  ∃ u, StepStar R t u ∧ Term.size u < Term.size t
+
+/-- If a term simplifies with a smaller rule set, it also simplifies with a larger one. -/
+theorem simplifiesWith.mono {R₁ R₂ : RuleSet S} (hR : R₁ ⊆ R₂) {t : Term S}
+    (h : simplifiesWith R₁ t) : simplifiesWith R₂ t := by
+  rcases h with ⟨u, hu, hsize⟩
+  exact ⟨u, StepStar.lift hR hu, hsize⟩
 
 end EnumRules

@@ -24,16 +24,36 @@ theorem terminates (n : Nat) :
     exact Step.kbo_of (fun hlr => rule_kbo hlr) h
   · exact InvImage.wf (f := id) kbo_wf
 
-/-! ## Every size-≤-n term reaches its `smtMin` in one root step (or is already minimal). -/
+/-! ## Every size-≤-n term reaches its `smtMin`. -/
 
 theorem reaches_smtMin (n : Nat) (s : Term S) (h : Term.size s ≤ n) :
     StepStar (R S n) s (smtMin s) := by
-  by_cases hfix : smtMin s = s
-  · simpa [hfix] using (Relation.ReflTransGen.refl : StepStar (R S n) s s)
-  · -- s ≠ smtMin s, so the rule (s, smtMin s) is in R n.
-    have hmem : (s, smtMin s) ∈ R S n :=
-      rule_mem_of_size h (fun h => hfix h)
-    exact Relation.ReflTransGen.single (Step.root hmem)
+  let P : Term S → Prop := fun t => Term.size t ≤ n → StepStar (R S n) t (smtMin t)
+  have hP : ∀ t, P t := by
+    intro t
+    refine kbo_wf.induction t (fun u ih => ?_)
+    intro hu
+    by_cases hfix : smtMin u = u
+    · simpa [hfix] using (Relation.ReflTransGen.refl : StepStar (R S n) u u)
+    · by_cases hmem : (u, smtMin u) ∈ R S n
+      · exact Relation.ReflTransGen.single (Step.root hmem)
+      · rcases not_mem_R_of_size hu hmem with (heq | hsp)
+        · exact (hfix heq).elim
+        · rcases hsp with ⟨v, huv, hsize_v⟩
+          have h_le : Term.size u - 1 ≤ n := by omega
+          have huv_n : StepStar (R S n) u v :=
+            StepStar.lift (R_subset h_le) huv
+          rcases StepStar.kbo_of (fun hlr => rule_kbo hlr) huv_n with (heq_uv | hlt_vu)
+          · rw [heq_uv] at hsize_v
+            exact absurd hsize_v (Nat.lt_irrefl _)
+          · have hv_size : Term.size v ≤ n := by omega
+            have hreach_v : StepStar (R S n) v (smtMin v) := ih v hlt_vu hv_size
+            have hequiv_uv : u ≈ₜ v :=
+              StepStar.equiv_of (fun hlr => rule_equiv hlr) huv_n
+            have hmin_eq : smtMin v = smtMin u := (smtMin_resp hequiv_uv).symm
+            rw [hmin_eq] at hreach_v
+            exact Relation.ReflTransGen.trans huv_n hreach_v
+  exact hP s h
 
 /-! ## Confluence / unique normal forms -/
 
@@ -44,7 +64,6 @@ theorem confluent (n : Nat) {s t : Term S}
     (hs : Term.size s ≤ n) (hst : StepStar (R S n) s t) :
     StepStar (R S n) s (smtMin s) ∧ StepStar (R S n) t (smtMin s) := by
   refine ⟨reaches_smtMin n s hs, ?_⟩
-  -- t ≈ s, so smtMin t = smtMin s.
   have hequiv : s ≈ₜ t :=
     StepStar.equiv_of (fun hlr => rule_equiv hlr) hst
   have hsize : Term.size t ≤ Term.size s :=

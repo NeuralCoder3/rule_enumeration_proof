@@ -1,3 +1,4 @@
 *.md
 .lake
 *.lock
+!ReadMe.md
