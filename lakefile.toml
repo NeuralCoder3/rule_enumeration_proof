@@ -1,0 +1,15 @@
+name = "enum_rules"
+version = "0.1.0"
+defaultTargets = ["enum_rules"]
+
+[[lean_lib]]
+name = "EnumRules"
+
+[[lean_exe]]
+name = "enum_rules"
+root = "Main"
+
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
+rev = "v4.29.1" # Or the specific tag/branch you need
