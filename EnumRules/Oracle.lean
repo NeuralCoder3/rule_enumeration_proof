@@ -5,13 +5,18 @@ import EnumRules.Kbo
 # SMT oracle: KBO-minimal representative of the ∼-class
 
 `smtMin t` is the output of the SMT call: an ∼-equivalent term that is
-KBO-minimal in its ∼-class and whose size does not exceed `size t`.
-From these three axioms we derive:
+KBO-minimal in its ∼-class.
 
-* `smtMin_resp`     : `s ≈ₜ t → smtMin s = smtMin t`
-* `smtMin_idem`     : `smtMin (smtMin t) = smtMin t`
-* `smtMin_le`       : `smtMin t = t ∨ smtMin t ≺ₖ t`
-* `smtMin_equiv_symm` : `t ≈ₜ smtMin t`
+Axioms:
+* `smtMin_equiv` — the output is ∼-equivalent to the input
+* `smtMin_min`  — the output is KBO-minimal in its ∼-class
+
+Derived theorems:
+* `smtMin_resp`      — `s ≈ₜ t → smtMin s = smtMin t`
+* `smtMin_idem`      — `smtMin (smtMin t) = smtMin t`
+* `smtMin_le`        — `smtMin t = t ∨ smtMin t ≺ₖ t`
+* `smtMin_size`      — `size (smtMin t) ≤ size t`  (from `smtMin_le` + `kbo_size_le`)
+* `smtMin_equiv_symm` — `t ≈ₜ smtMin t`
 -/
 
 namespace EnumRules
@@ -29,9 +34,6 @@ axiom smtMin_equiv (t : Term S) : (smtMin t) ≈ₜ t
 /-- The oracle's output is KBO-minimal in its ∼-class: no ∼-equivalent term
 is strictly KBO-smaller. -/
 axiom smtMin_min {t : Term S} (u : Term S) (h : u ≈ₜ t) : ¬ (u ≺ₖ (smtMin t))
-
-/-- The oracle never grows terms: `size (smtMin t) ≤ size t`. -/
-axiom smtMin_size (t : Term S) : Term.size (smtMin t) ≤ Term.size t
 
 /-- The oracle's output is also ∼-equivalent in the other direction. -/
 theorem smtMin_equiv_symm (t : Term S) : t ≈ₜ smtMin t :=
@@ -62,5 +64,12 @@ theorem smtMin_le (t : Term S) : smtMin t = t ∨ (smtMin t) ≺ₖ t := by
   · exact Or.inr hlt
   · -- t ≺ smtMin t, but t is ∼-equivalent to t, contradicting minimality of smtMin t.
     exact absurd hgt (smtMin_min t (equiv_refl t))
+
+/-- The oracle never grows the term: follows from `smtMin_le` and the KBO weight-1
+property that KBO-smaller implies not larger in size. -/
+theorem smtMin_size (t : Term S) : Term.size (smtMin t) ≤ Term.size t := by
+  rcases smtMin_le t with (heq | hlt)
+  · rw [heq]
+  · exact kbo_size_le hlt
 
 end EnumRules
