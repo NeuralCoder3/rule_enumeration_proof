@@ -28,4 +28,9 @@ axiom equiv_trans {s t u : Term S} : s ≈ₜ t → t ≈ₜ u → s ≈ₜ u
 axiom equiv_congr {f : S.σ} {as bs : Fin (S.arity f) → Term S}
     (h : ∀ i, as i ≈ₜ bs i) : (Term.node f as) ≈ₜ (Term.node f bs)
 
+/-- Renaming variable symbols produces an equivalent term. -/
+axiom equiv_var_rename {S : Signature} (ρ : S.σ → S.σ)
+    (hρ_arity : ∀ a, S.isVar a → S.arity (ρ a) = 0) (t : Term S) :
+    Term.renameVars ρ hρ_arity t ≈ₜ t
+
 end EnumRules

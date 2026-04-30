@@ -12,4 +12,9 @@ otherwise: smt
 
 
 Alg 2:
-Enumerate terms only from the irreducable set of previous iterations.
+Enumerate terms only from the irreducible set of previous iterations.
+
+
+Alg 3:
+Enumerate terms only with lexicographic order on variables.
+rename each rule for all permutations

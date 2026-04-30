@@ -72,4 +72,9 @@ theorem smtMin_size (t : Term S) : Term.size (smtMin t) ≤ Term.size t := by
   · rw [heq]
   · exact kbo_size_le hlt
 
+/-- The SMT oracle respects variable renaming. -/
+axiom smtMin_rename (t : Term S) (ρ : S.σ → S.σ)
+    (hρ_arity : ∀ a, S.isVar a → S.arity (ρ a) = 0) :
+    smtMin (Term.renameVars ρ hρ_arity t) = Term.renameVars ρ hρ_arity (smtMin t)
+
 end EnumRules

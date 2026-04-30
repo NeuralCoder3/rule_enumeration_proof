@@ -54,56 +54,60 @@ theorem reaches_smtMin (n : Nat) (s : Term S) (h : Term.size s ≤ n) :
             have hmin_eq : smtMin v = smtMin u := (smtMin_resp hequiv_uv).symm
             rw [hmin_eq] at hreach_v
             exact Relation.ReflTransGen.trans huv_n hreach_v
-        · -- Case 2: u ∉ termsFromIrreducible; it has a reducible subterm
+        · -- Case 2: u ∉ termsFromIrreducible
           have hsize_u_eq : Term.size u = Term.size u := rfl
-          rcases not_mem_termsFromIrreducible hsize_u_eq hnotenum with ⟨f, args, i, heq, hi⟩
-          subst heq
-          -- hi : args i ∉ I S (Term.size (node f args) - 1)
-          have hsize_arg_lt : Term.size (args i) < Term.size (Term.node f args) :=
-            Term.size_arg_lt f args i
-          have hsize_arg_le_n : Term.size (args i) ≤ n := by omega
-          have hkbo_arg : (args i) ≺ₖ (Term.node f args) := kbo_subterm
-          have hreach_arg : StepStar (R S n) (args i) (smtMin (args i)) :=
-            ih (args i) hkbo_arg hsize_arg_le_n
-          by_cases hmin_arg : smtMin (args i) = args i
-          · -- args i is minimal; then by I_contains_minimal it must be in I, contradiction
-            have hsize_lt : Term.size (args i) < Term.size (Term.node f args) := hsize_arg_lt
-            have hu_size : Term.size (Term.node f args) ≤ n := hu
-            have h_in_I : args i ∈ I S (Term.size (Term.node f args) - 1) :=
-              I_contains_minimal (by omega) hmin_arg
-            exact absurd h_in_I hi
-          · -- args i not minimal; non-trivial reduction via StepStar.ctx
-            rcases StepStar.kbo_of (fun hlr => rule_kbo hlr) hreach_arg with (heq_a | hlt_smt)
-            · exact (hmin_arg heq_a.symm).elim
-            · let args' := fun j => if j = i then smtMin (args i) else args j
-              let t' := Term.node f args'
-              have hctx : StepStar (R S n) (Term.node f args) t' := StepStar.ctx hreach_arg
-              have hkbo_t' : t' ≺ₖ (Term.node f args) := by
-                have hrest : ∀ j, j ≠ i → args j = args' j := by
-                  intro j hj; simp [args', hj]
-                apply kbo_mono_ctx (as := args) (bs := args') (i := i) hrest
-                simpa [args'] using hlt_smt
-              have hsize_t' : Term.size t' ≤ n := by
-                have hsize_node : Term.size (Term.node f args) ≤ n := hu
-                apply le_trans ?_ hsize_node
-                dsimp [t']
-                let pos := i
-                unfold Term.size
-                have hsum : (∑ j : Fin (S.arity f), Term.size ((fun j => if j = pos then smtMin (args pos) else args j) j)) ≤
-                           (∑ j : Fin (S.arity f), Term.size (args j)) :=
-                  Finset.sum_le_sum (fun j _ => by
-                    dsimp
-                    split_ifs with hji
-                    · subst hji; exact smtMin_size (args pos)
-                    · rfl)
-                exact Nat.add_le_add_left hsum 1
-              have hreach_t' : StepStar (R S n) t' (smtMin t') := ih t' hkbo_t' hsize_t'
-              have hequiv : (Term.node f args) ≈ₜ t' :=
-                StepStar.equiv_of (fun hlr => rule_equiv hlr) hctx
-              have hmin_eq : smtMin t' = smtMin (Term.node f args) :=
-                (smtMin_resp hequiv).symm
-              rw [hmin_eq] at hreach_t'
-              exact Relation.ReflTransGen.trans hctx hreach_t'
+          rcases not_mem_termsFromIrreducible hsize_u_eq hnotenum with (hsub | hnotcanon)
+          · -- u has a reducible subterm
+            rcases hsub with ⟨f, args, i, heq, hi⟩
+            subst heq
+            -- hi : args i ∉ I S (Term.size (node f args) - 1)
+            have hsize_arg_lt : Term.size (args i) < Term.size (Term.node f args) :=
+              Term.size_arg_lt f args i
+            have hsize_arg_le_n : Term.size (args i) ≤ n := by omega
+            have hkbo_arg : (args i) ≺ₖ (Term.node f args) := kbo_subterm
+            have hreach_arg : StepStar (R S n) (args i) (smtMin (args i)) :=
+              ih (args i) hkbo_arg hsize_arg_le_n
+            by_cases hmin_arg : smtMin (args i) = args i
+            · -- args i is minimal; then by I_contains_minimal it must be in I, contradiction
+              have hsize_lt : Term.size (args i) < Term.size (Term.node f args) := hsize_arg_lt
+              have hu_size : Term.size (Term.node f args) ≤ n := hu
+              have h_in_I : args i ∈ I S (Term.size (Term.node f args) - 1) :=
+                I_contains_minimal (by omega) hmin_arg
+              exact absurd h_in_I hi
+            · -- args i not minimal; non-trivial reduction via StepStar.ctx
+              rcases StepStar.kbo_of (fun hlr => rule_kbo hlr) hreach_arg with (heq_a | hlt_smt)
+              · exact (hmin_arg heq_a.symm).elim
+              · let args' := fun j => if j = i then smtMin (args i) else args j
+                let t' := Term.node f args'
+                have hctx : StepStar (R S n) (Term.node f args) t' := StepStar.ctx hreach_arg
+                have hkbo_t' : t' ≺ₖ (Term.node f args) := by
+                  have hrest : ∀ j, j ≠ i → args j = args' j := by
+                    intro j hj; simp [args', hj]
+                  apply kbo_mono_ctx (as := args) (bs := args') (i := i) hrest
+                  simpa [args'] using hlt_smt
+                have hsize_t' : Term.size t' ≤ n := by
+                  have hsize_node : Term.size (Term.node f args) ≤ n := hu
+                  apply le_trans ?_ hsize_node
+                  dsimp [t']
+                  let pos := i
+                  unfold Term.size
+                  have hsum : (∑ j : Fin (S.arity f), Term.size ((fun j => if j = pos then smtMin (args pos) else args j) j)) ≤
+                             (∑ j : Fin (S.arity f), Term.size (args j)) :=
+                    Finset.sum_le_sum (fun j _ => by
+                      dsimp
+                      split_ifs with hji
+                      · subst hji; exact smtMin_size (args pos)
+                      · rfl)
+                  exact Nat.add_le_add_left hsum 1
+                have hreach_t' : StepStar (R S n) t' (smtMin t') := ih t' hkbo_t' hsize_t'
+                have hequiv : (Term.node f args) ≈ₜ t' :=
+                  StepStar.equiv_of (fun hlr => rule_equiv hlr) hctx
+                have hmin_eq : smtMin t' = smtMin (Term.node f args) :=
+                  (smtMin_resp hequiv).symm
+                rw [hmin_eq] at hreach_t'
+                exact Relation.ReflTransGen.trans hctx hreach_t'
+          · -- u is not canonical; use the noncanonical axiom
+            exact reaches_smtMin_noncanonical hu hnotcanon
   exact hP s h
 
 /-! ## Confluence / unique normal forms -/
