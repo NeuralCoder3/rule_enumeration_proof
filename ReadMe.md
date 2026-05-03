@@ -13,3 +13,7 @@ otherwise: smt
 
 Alg 2:
 Enumerate terms only from the irreducable set of previous iterations.
+
+
+Alg 3:
+Only enumerate canonical terms.
