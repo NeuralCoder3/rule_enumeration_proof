@@ -115,8 +115,6 @@ theorem enum_handles (n : Nat) (t : Term S) (hsz : Term.size t = n + 1)
         fun h => h_min h.symm, h_simp⟩
     exact Relation.ReflTransGen.single (StepR.step (Step.root hmem))
 
-/-! ## Main lemma -/
-
 theorem reaches_smtMin_up_to_rename (n : Nat) (s : Term S)
     (hsize : Term.size s ≤ n) :
     ∃ s', s ≈ᵣ s' ∧ Canonical s' ∧
@@ -291,20 +289,28 @@ theorem reaches_smtMin_up_to_rename (n : Nat) (s : Term S)
                     (StepR.rename (rename_symm h_smt_rel)))))
             exact ⟨Term.node f args, hs_r, hcan₀, hpath, hsmineq⟩
 
+/-- Simplified: `s` reaches some `u` via `StepStarR` with `smtMin s ≈ᵣ u`.
+The initial canonicalization rename is absorbed into the StepR path. -/
+theorem reaches_smtMin_up_to_rename_simple (n : Nat) (s : Term S)
+    (hsize : Term.size s ≤ n) :
+    ∃ u, StepStarR (R S n) s u ∧ smtMin s ≈ᵣ u := by
+  rcases reaches_smtMin_up_to_rename n s hsize with ⟨s', hs_r, _, hreach, hsmt⟩
+  exact ⟨smtMin s',
+    (Relation.ReflTransGen.single (StepR.rename hs_r)).trans hreach,
+    rename_symm hsmt⟩
+
 /-! ## Ground-completeness up to renaming -/
+/-- SMT‑equivalent terms share a common `StepStarR`‑reduct. -/
 theorem ground_complete_up_to_rename (n : Nat) {s t : Term S}
     (hs : Term.size s ≤ n) (ht : Term.size t ≤ n) (hst : s ≈ₜ t) :
-    ∃ s' t', (s ≈ᵣ s') ∧ (t ≈ᵣ t') ∧
-      StepStarR (R S n) s' (smtMin s') ∧
-      StepStarR (R S n) t' (smtMin t') ∧
-      smtMin s' ≈ᵣ smtMin t' := by
-  rcases reaches_smtMin_up_to_rename n s hs with ⟨s', hs_r, _, hreach_s, hsmt⟩
-  rcases reaches_smtMin_up_to_rename n t ht with ⟨t', ht_r, _, hreach_t, tsmt⟩
+    ∃ u, StepStarR (R S n) s u ∧ StepStarR (R S n) t u := by
+  rcases reaches_smtMin_up_to_rename_simple n s hs with ⟨u, hreach_s, hsmt⟩
+  rcases reaches_smtMin_up_to_rename_simple n t ht with ⟨v, hreach_t, tsmt⟩
   have h_eq : smtMin s = smtMin t := smtMin_resp (s := s) (t := t) hst
-  have hsmeq : smtMin s ≈ᵣ smtMin t := h_eq ▸ rename_refl _
-  have hst_eq : smtMin t ≈ᵣ smtMin t' := rename_symm tsmt
-  have hsmt' : smtMin s' ≈ᵣ smtMin t' :=
-    rename_trans (rename_trans hsmt hsmeq) hst_eq
-  exact ⟨s', t', hs_r, ht_r, hreach_s, hreach_t, hsmt'⟩
+  -- u ≈ᵣ smtMin s = smtMin t ≈ᵣ v → v ≈ᵣ u
+  have h_uv : v ≈ᵣ u :=
+    rename_trans (rename_symm tsmt) (h_eq.symm ▸ hsmt)
+  exact ⟨u, hreach_s,
+    hreach_t.trans (Relation.ReflTransGen.single (StepR.rename h_uv))⟩
 
 end EnumRules
