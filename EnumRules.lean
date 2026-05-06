@@ -3,8 +3,8 @@ import EnumRules.Term
 import EnumRules.Equiv
 import EnumRules.Kbo
 import EnumRules.Oracle
+import EnumRules.Subst
 import EnumRules.Rewrite
-import EnumRules.Canonical
 import EnumRules.Algorithm
 import EnumRules.Correctness
 

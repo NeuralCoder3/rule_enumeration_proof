@@ -3,13 +3,15 @@ import Mathlib.Logic.Relation
 import EnumRules.Equiv
 import EnumRules.Kbo
 import EnumRules.Oracle
+import EnumRules.Subst
 
 /-
-# Rewrite relation
+# Substitution-based rewriting
 
-A rule set is a finite set of term pairs. One-step rewriting is the
-standard contextual closure: rewrite at the root or in exactly one
-argument position.
+A rule set is a finite set of term pairs. One-step rewriting is
+substitution-based contextual closure: a rule `(l, r)` fires by
+matching `apply σ l` and replacing it with `apply σ r`, optionally
+under a one-hole context.
 -/
 
 namespace EnumRules
@@ -19,10 +21,11 @@ variable {S : Signature}
 /-- A rule set is a finite set of pairs `(l, r)`. -/
 abbrev RuleSet (S : Signature) := Finset (Term S × Term S)
 
-/-- One-step rewriting. -/
+/-- One-step substitution-based rewriting. -/
 inductive Step (R : RuleSet S) : Term S → Term S → Prop where
-  /-- Root rewrite: apply a rule at the top of the term. -/
-  | root {l r : Term S} : (l, r) ∈ R → Step R l r
+  /-- Root rewrite: fire a rule under a substitution. -/
+  | root {l r : Term S} (σ : Subst S) :
+      (l, r) ∈ R → Step R (apply σ l) (apply σ r)
   /-- Contextual rewrite: rewrite the `i`-th argument of a node. -/
   | ctx {f : S.σ} {as bs : Fin (S.arity f) → Term S} {i : Fin (S.arity f)}
         (hstep : Step R (as i) (bs i))
@@ -35,62 +38,46 @@ abbrev StepStar (R : RuleSet S) : Term S → Term S → Prop :=
 
 namespace Step
 
-/-- Every one-step rewrite under a ∼-sound rule set preserves ∼. -/
+/-- Fire a rule at the root via the identity substitution. -/
+theorem root_id {R : RuleSet S} {l r : Term S}
+    (h : (l, r) ∈ R) : Step R l r := by
+  have := Step.root (R := R) (idSubst S) h
+  simpa [apply_id] using this
+
+/-- Soundness: a step under a `≈ₜ`-sound rule set preserves `≈ₜ`. -/
 theorem equiv_of
     {R : RuleSet S}
     (hR : ∀ {l r : Term S}, (l, r) ∈ R → l ≈ₜ r)
     {s t : Term S} (hst : Step R s t) : s ≈ₜ t := by
   induction hst with
-  | root hlr => exact hR hlr
+  | root σ hlr => exact equiv_subst (hR hlr) σ
   | @ctx f as bs i _ hrest ih =>
-    -- Build arg-wise equivalence: at i we have ih, elsewhere as j = bs j.
-    have harg : ∀ j, as j ≈ₜ bs j := by
-      intro j
-      by_cases hj : j = i
-      · cases hj; exact ih
-      · have h := hrest j hj
-        -- `as j = bs j` gives reflexive equivalence after rewriting.
-        have : as j ≈ₜ as j := equiv_refl _
-        exact h ▸ this
-    exact equiv_congr harg
+      have harg : ∀ j, as j ≈ₜ bs j := by
+        intro j
+        by_cases hj : j = i
+        · cases hj; exact ih
+        · exact (hrest j hj) ▸ equiv_refl _
+      exact equiv_congr harg
 
-/-- Every one-step rewrite under an "oracle"-compatible rule set is
-KBO-decreasing, given that every rule `(l, r)` satisfies `r ≺ₖ l`. -/
+/-- KBO-decrease: a step under a KBO-decreasing rule set is itself
+KBO-decreasing — pointwise on rule skeletons (`r ≺ₖ l`) lifts to every
+substitution instance via `kbo_subst`. -/
 theorem kbo_of
     {R : RuleSet S}
     (hR : ∀ {l r : Term S}, (l, r) ∈ R → r ≺ₖ l)
     {s t : Term S} (hst : Step R s t) : t ≺ₖ s := by
   induction hst with
-  | root hlr => exact hR hlr
+  | root σ hlr => exact kbo_subst (hR hlr) σ
   | @ctx f as bs i _ hrest ih =>
-    -- `bs i ≺ as i` and `as j = bs j` for `j ≠ i`.
-    -- We want `node f bs ≺ node f as`, which is `kbo_mono_ctx` with `as` as the
-    -- "larger" family and `bs` as the "smaller" family.
-    refine kbo_mono_ctx (as := as) (bs := bs) (i := i) ?_ ih
-    intro j hj
-    exact hrest j hj
+      exact kbo_mono_ctx (as := as) (bs := bs) (i := i)
+        (fun j hj => hrest j hj) ih
 
-/-- One-step rewriting under a size-non-increasing rule set does not grow
-the term size. -/
-theorem size_of
-    {R : RuleSet S}
-    (hR : ∀ {l r : Term S}, (l, r) ∈ R → Term.size r ≤ Term.size l)
-    {s t : Term S} (hst : Step R s t) : Term.size t ≤ Term.size s := by
-  induction hst with
-  | root hlr => exact hR hlr
-  | @ctx f as bs i _ hrest ih =>
-    -- size (node f as) = 1 + ∑ size (as j); similarly for bs.
-    -- Only `i` changes; at `i` we have `size (bs i) ≤ size (as i)` by IH;
-    -- everywhere else they are equal.
-    simp [Term.size]
-    have hsum : (∑ i : Fin (S.arity f), Term.size (bs i)) ≤ (∑ i : Fin (S.arity f), Term.size (as i)) := by
-      apply Finset.sum_le_sum
-      intro j _
-      by_cases hj : j = i
-      · cases hj; exact ih
-      · have h := hrest j hj
-        rw [h]
-    omega
+/-- Lift a step to a larger rule set. -/
+theorem lift {R₁ R₂ : RuleSet S} (hR : R₁ ⊆ R₂) {s t : Term S}
+    (h : Step R₁ s t) : Step R₂ s t := by
+  induction h with
+  | root σ hmem => exact Step.root σ (hR hmem)
+  | ctx _ hrest ih => exact Step.ctx ih hrest
 
 end Step
 
@@ -105,58 +92,34 @@ theorem equiv_of
   | refl => exact equiv_refl _
   | tail _ hlast ih => exact equiv_trans ih (Step.equiv_of hR hlast)
 
-/-- Reflexive-transitive version of `Step.size_of`. -/
-theorem size_of
-    {R : RuleSet S}
-    (hR : ∀ {l r : Term S}, (l, r) ∈ R → Term.size r ≤ Term.size l)
-    {s t : Term S} (hst : StepStar R s t) : Term.size t ≤ Term.size s := by
-  induction hst with
-  | refl => exact le_refl _
-  | tail _ hlast ih => exact le_trans (Step.size_of hR hlast) ih
-
 /-- Reflexive-transitive version of `Step.kbo_of`. -/
 theorem kbo_of
     {R : RuleSet S}
     (hR : ∀ {l r : Term S}, (l, r) ∈ R → r ≺ₖ l)
-    {s t : Term S} (hst : StepStar R s t) : s = t ∨ kbo t s := by
+    {s t : Term S} (hst : StepStar R s t) : s = t ∨ t ≺ₖ s := by
   induction hst with
   | refl => exact Or.inl rfl
-  | tail hprefix hstep ih =>
+  | tail _ hstep ih =>
     rcases ih with (heq | hlt)
     · subst heq; exact Or.inr (Step.kbo_of hR hstep)
     · exact Or.inr (kbo_trans (Step.kbo_of hR hstep) hlt)
 
-end StepStar
-
-/-- Lift a single step to a larger rule set. -/
-theorem Step.lift {R₁ R₂ : RuleSet S} (hR : R₁ ⊆ R₂) {s t : Term S}
-    (h : Step R₁ s t) : Step R₂ s t := by
-  induction h with
-  | root hmem => exact Step.root (hR hmem)
-  | ctx hstep hrest ih => exact Step.ctx ih hrest
-
 /-- Lift a rewrite sequence to a larger rule set. -/
-theorem StepStar.lift {R₁ R₂ : RuleSet S} (hR : R₁ ⊆ R₂) {s t : Term S}
+theorem lift {R₁ R₂ : RuleSet S} (hR : R₁ ⊆ R₂) {s t : Term S}
     (h : StepStar R₁ s t) : StepStar R₂ s t := by
   induction h with
   | refl => exact Relation.ReflTransGen.refl
-  | tail hprefix hstep ih =>
+  | tail _ hstep ih =>
     exact Relation.ReflTransGen.tail ih (Step.lift hR hstep)
 
+end StepStar
+
 /-- `simplifiesWith R t` holds when `t` can be rewritten by `R` to a term
-of strictly smaller size. This is used to skip SMT calls for terms already
-covered by rules from previous iterations. -/
+of strictly smaller size. -/
 def simplifiesWith (R : RuleSet S) (t : Term S) : Prop :=
   ∃ u, StepStar R t u ∧ Term.size u < Term.size t
 
-/-- If a term simplifies with a smaller rule set, it also simplifies with a larger one. -/
-theorem simplifiesWith.mono {R₁ R₂ : RuleSet S} (hR : R₁ ⊆ R₂) {t : Term S}
-    (h : simplifiesWith R₁ t) : simplifiesWith R₂ t := by
-  rcases h with ⟨u, hu, hsize⟩
-  exact ⟨u, StepStar.lift hR hu, hsize⟩
-
-/-- Lift a `StepStar` reduction to a context position: if a subterm rewrites,
-the whole node rewrites at that position. -/
+/-- Lift a `StepStar` reduction to a context position. -/
 theorem StepStar.ctx {R : RuleSet S} {f : S.σ}
     {args : Fin (S.arity f) → Term S} {i : Fin (S.arity f)} {v : Term S}
     (h : StepStar R (args i) v) :
