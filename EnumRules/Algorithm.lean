@@ -140,19 +140,14 @@ theorem rule_kbo {S : Signature} {n : Nat} {l r : Term S}
     (h : (l, r) ∈ R S n) : r ≺ₖ l := by
   rcases mem_R.mp h with ⟨_, _, _, _, hr, hne, _⟩
   subst hr
-  rcases smtMin_le l with heq | hlt
-  · exact (hne heq.symm).elim
-  · exact hlt
+  exact smtMin_strict (Ne.symm hne)
 
 /-- If a node is minimal, all its subterms are also minimal. -/
 theorem subterm_of_minimal_is_minimal {S : Signature} {f : S.σ}
     {args : Fin (S.arity f) → Term S} (hmin : smtMin (Term.node f args) = Term.node f args)
     (i : Fin (S.arity f)) : smtMin (args i) = args i := by
   by_contra hne
-  have hlt : smtMin (args i) ≺ₖ args i := by
-    rcases smtMin_le (args i) with (heq | hlt)
-    · exact (hne heq).elim
-    · exact hlt
+  have hlt : smtMin (args i) ≺ₖ args i := smtMin_strict hne
   let args' : Fin (S.arity f) → Term S :=
     fun j => if j = i then smtMin (args i) else args j
   have hrest : ∀ j, j ≠ i → args j = args' j := by

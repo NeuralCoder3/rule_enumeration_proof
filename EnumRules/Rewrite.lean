@@ -58,7 +58,7 @@ namespace Step
 /-- Fire a rule at the root via the identity substitution. -/
 theorem root_id {R : RuleSet S} {l r : Term S}
     (h : (l, r) ∈ R) : Step R l r := by
-  have := Step.root (R := R) (idSubst S) h
+  have := Step.root (R := R) Subst.id h
   simpa [apply_id] using this
 
 /-- Soundness: a step under a `≈ₜ`-sound rule set preserves `≈ₜ`. -/

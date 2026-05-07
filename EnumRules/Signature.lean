@@ -1,18 +1,17 @@
 /-
-# Signatures
+# Signatures with explicit variables
 
-## Role
-Bundle a symbol type `σ` with an arity function. The base of the term
-language: every term is a function symbol applied to its arity-many
-arguments.
-
-## Axioms
-None. Decidable equality on `σ` is a structure field, not an axiom.
+A `Signature` packages:
+* `σ`: type of function symbols (with arities).
+* `V`: type of variables (separate from `σ`).
+* Decidable equality on both, so terms have decidable equality.
 -/
 
 structure Signature where
-  σ     : Type
-  decEq : DecidableEq σ
-  arity : σ → Nat
+  σ      : Type
+  V      : Type
+  decEqσ : DecidableEq σ
+  decEqV : DecidableEq V
+  arity  : σ → Nat
 
-attribute [instance] Signature.decEq
+attribute [instance] Signature.decEqσ Signature.decEqV

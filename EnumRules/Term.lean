@@ -5,18 +5,20 @@ import Mathlib.Algebra.Order.BigOperators.Group.Finset
 import EnumRules.Signature
 
 /-
-# Ground terms over a signature
+# Terms with explicit variables
 
-## Role
-Inductive `Term S` and a `size` function. Variables are modelled as
-0-ary symbols (the algorithm's "var-constants"). `size_arg_lt` is the
-key fact powering size-induction in `Algorithm.lean` / `Correctness.lean`.
+Terms are built from:
+* `var v` for `v : S.V` — a *variable*, may be substituted.
+* `node f args` for `f : S.σ` — a *function application* with the
+  right number of argument terms.
 
-## Axioms
-None. Pure inductive type + structural recursion.
+The two constructors are syntactically distinct, so the proof can
+distinguish "rule-creation candidates" (which may have variables) from
+"ground-evaluation targets" (no variables).
 -/
 
 inductive Term (S : Signature) : Type where
+  | var  (v : S.V) : Term S
   | node (f : S.σ) (args : Fin (S.arity f) → Term S) : Term S
 
 namespace Term
@@ -29,31 +31,34 @@ theorem node_ext {f : S.σ} {as bs : Fin (S.arity f) → Term S}
   have : as = bs := funext h
   simp [this]
 
-/-- Decidable equality for ground terms using classical logic. -/
 noncomputable instance : DecidableEq (Term S) := by
   classical
   exact inferInstance
 
-/-- Size of a term: 1 plus the sum of the sizes of its arguments. -/
+/-- Size of a term: variables have size 1, function applications add 1
+to the sum of subterm sizes. -/
 def size : Term S → Nat
-  | .node _ args =>
-    1 + Finset.sum (Finset.univ : Finset (Fin _)) (fun i => size (args i))
+  | .var _      => 1
+  | .node _ args => 1 + Finset.sum (Finset.univ : Finset (Fin _)) (fun i => size (args i))
 termination_by structural t => t
 
-/-- Every term has size at least 1. -/
 theorem size_pos (t : Term S) : 1 ≤ size t := by
   cases t with
-  | node _ _ =>
-    simp [size]
+  | var _   => simp [size]
+  | node _ _ => simp [size]
 
-/-- A direct argument is strictly smaller than the enclosing node. -/
 theorem size_arg_lt (f : S.σ) (args : Fin (S.arity f) → Term S) (i : Fin (S.arity f)) :
     size (args i) < size (Term.node f args) := by
   rw [size]
   have hsum : size (args i) ≤ Finset.sum (Finset.univ : Finset (Fin (S.arity f))) (fun j => size (args j)) :=
-    Finset.single_le_sum (by
-      intro j _
-      exact Nat.zero_le (size (args j))) (Finset.mem_univ i)
+    Finset.single_le_sum (f := fun j => size (args j))
+      (by intro j _; exact Nat.zero_le _) (Finset.mem_univ i)
   omega
+
+/-- A term is *ground* if it contains no variables. -/
+def IsGround : Term S → Prop
+  | .var _      => False
+  | .node _ args => ∀ i, IsGround (args i)
+termination_by structural t => t
 
 end Term

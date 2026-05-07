@@ -1,106 +1,111 @@
 import EnumRules.Equiv
 import EnumRules.Kbo
-import EnumRules.Oracle
 
 /-
-# Substitutions and α-equivalence
+# Substitutions (concrete)
 
-## Role
-Abstract type `Subst S` with action `apply σ t`. Substitutions enter the
-proof in two roles: rules fire under any substitution (`Step.root σ` in
-Rewrite.lean), and α-equivalence is built from invertible substitutions.
+Substitutions are *functions* `S.V → Term S`. Substitution application,
+identity, and composition are defined directly. The previously
+"opaque" axioms `apply_id`, `apply_comp`, `apply_node` are now
+**theorems** by structural induction.
 
-## Axioms (8 total)
+The remaining axioms are about how `≈ₜ` and `≺ₖ` interact with
+substitution — those are external to the substitution machinery itself.
 
-Type-level (3 opaques):
-* `Subst : Type`, `idSubst : Subst S`, `apply : Subst S → Term S → Term S`,
-  `Subst.comp : Subst S → Subst S → Subst S`.
+## Axioms in this file (3)
 
-Behavioural (8):
-* `Subst.nonempty` — `Subst S` inhabited.
-* `apply_id : apply (idSubst S) t = t` — identity acts trivially.
-* `kbo_subst : s ≺ₖ t → apply σ s ≺ₖ apply σ t` — order is substitution-monotone.
-* `equiv_subst : s ≈ₜ t → apply σ s ≈ₜ apply σ t` — `≈ₜ` is closed under substitution.
-* `apply_comp : apply (Subst.comp ρ σ) t = apply ρ (apply σ t)`.
-* `apply_node : apply σ (Term.node f args) = Term.node f (apply σ ∘ args)`.
-* `smtMin_subst : smtMin (apply σ t) = apply σ (smtMin t)` — smtMin commutes
-  with substitution. The crucial new axiom: it makes the bridge a *theorem*
-  rather than a hypothesis.
-* `smtMin_resp_alpha : s ≈ₜ t → ∃ ρ, IsRenaming ρ ∧ apply ρ (smtMin s) = smtMin t`
-  — `≈ₜ`-equivalent inputs have α-equivalent (renaming-related) `smtMin`s.
-  Stronger than `≈ₜ`-equivalence (which is automatic), weaker than equality.
+* `kbo_subst : s ≺ₖ t → apply σ s ≺ₖ apply σ t` (substitution-monotonicity
+  of the reduction order). KBO with positive weights satisfies this.
+* `equiv_subst : s ≈ₜ t → apply σ s ≈ₜ apply σ t` (the SMT equivalence
+  is closed under substitution).
+* `equiv_rename : IsRenaming ρ → s ≈ₜ apply ρ s` (renaming variables
+  preserves the SMT-equivalence class). Reflects that `Term.var v` is
+  an algorithm-level placeholder; user-level "variables" are 0-ary
+  nodes in `S.σ`. Note this is *not* derivable from `equiv_subst`,
+  which only gives `apply ρ s ≈ₜ apply ρ s`.
 
-Holds for every signature whose `≈ₜ`-classes are renaming-mediated
-(non-commutative, pure-commutativity). For richer theories (AC) the
-axiom would be unsound — it's the natural strength point.
+These are not derivable from the structural definition of `apply`.
 -/
 
 namespace EnumRules
 
 variable {S : Signature}
 
-/-! ## Substitutions -/
+/-! ## Concrete substitutions -/
 
-opaque Subst (S : Signature) : Type
+/-- A substitution is a function from variables to terms. -/
+def Subst (S : Signature) : Type := S.V → Term S
 
-axiom Subst.nonempty (S : Signature) : Nonempty (Subst S)
+/-- The identity substitution maps each variable to itself. -/
+def Subst.id : Subst S := Term.var
 
-instance (S : Signature) : Nonempty (Subst S) := Subst.nonempty S
+/-- Apply a substitution to a term. -/
+def apply (σ : Subst S) : Term S → Term S
+  | .var v       => σ v
+  | .node f args => .node f (fun i => apply σ (args i))
+termination_by structural t => t
 
-instance : Nonempty (Subst S → Term S → Term S) := ⟨fun _ t => t⟩
+/-- Composition of substitutions: `(comp ρ σ) v = apply ρ (σ v)`. -/
+def Subst.comp (ρ σ : Subst S) : Subst S := fun v => apply ρ (σ v)
 
-noncomputable opaque apply : Subst S → Term S → Term S
+instance : Inhabited (Subst S) := ⟨Subst.id⟩
 
-noncomputable opaque idSubst (S : Signature) : Subst S
+@[simp]
+theorem apply_var (σ : Subst S) (v : S.V) : apply σ (.var v) = σ v := rfl
 
-axiom apply_id (t : Term S) : apply (idSubst S) t = t
+@[simp]
+theorem apply_node (σ : Subst S) {f : S.σ} (args : Fin (S.arity f) → Term S) :
+    apply σ (.node f args) = .node f (fun i => apply σ (args i)) := rfl
 
+/-! ### Identity acts trivially -/
+
+theorem apply_id (t : Term S) : apply Subst.id t = t := by
+  induction t with
+  | var v => simp [Subst.id]
+  | node f args ih =>
+      show Term.node f (fun i => apply Subst.id (args i)) = Term.node f args
+      congr 1; funext i; exact ih i
+
+/-! ### Composition -/
+
+theorem apply_comp (ρ σ : Subst S) (t : Term S) :
+    apply (Subst.comp ρ σ) t = apply ρ (apply σ t) := by
+  induction t with
+  | var v => simp [Subst.comp]
+  | node f args ih => simp [ih]
+
+/-! ## Behavioural axioms -/
+
+/-- Substitution-monotonicity of `≺ₖ`. KBO satisfies this. -/
 axiom kbo_subst {s t : Term S} (h : s ≺ₖ t) (σ : Subst S) :
     apply σ s ≺ₖ apply σ t
 
+/-- `≈ₜ` is closed under substitution. -/
 axiom equiv_subst {s t : Term S} (h : s ≈ₜ t) (σ : Subst S) :
     apply σ s ≈ₜ apply σ t
 
-noncomputable opaque Subst.comp : Subst S → Subst S → Subst S
-
-axiom apply_comp (ρ σ : Subst S) (t : Term S) :
-    apply (Subst.comp ρ σ) t = apply ρ (apply σ t)
-
-axiom apply_node {f : S.σ} (args : Fin (S.arity f) → Term S) (σ : Subst S) :
-    apply σ (Term.node f args) = Term.node f (fun i => apply σ (args i))
-
-/-- `smtMin` commutes with substitution. The key new axiom that promotes
-the bridge from a hypothesis to a theorem. -/
-axiom smtMin_subst (σ : Subst S) (t : Term S) :
-    smtMin (apply σ t) = apply σ (smtMin t)
-
 /-! ## α-equivalence (renaming-equivalence)
 
-A *renaming* substitution is one with a global left inverse — invertible
-on every term, not just on a single one. The α-equivalence relation
-asks for a renaming witness. -/
+A *renaming* is a substitution that maps each variable to a variable
+and is bijective on `S.V`. We package this as: `ρ` is a renaming if
+there exists a left and right inverse on every term. -/
 
-/-- A substitution is a *renaming* if it has a global left inverse. -/
 def IsRenaming (ρ : Subst S) : Prop :=
-  ∃ τ : Subst S, ∀ u : Term S, apply τ (apply ρ u) = u
+  ∃ τ : Subst S, (∀ u : Term S, apply τ (apply ρ u) = u) ∧
+                 (∀ u : Term S, apply ρ (apply τ u) = u)
 
-/-- α-equivalence: `t = apply ρ s` for some invertible (renaming) `ρ`. -/
+/-- α-equivalence: terms differ only by a renaming. -/
 def AlphaEquiv (s t : Term S) : Prop :=
   ∃ ρ : Subst S, IsRenaming ρ ∧ apply ρ s = t
 
 @[inherit_doc AlphaEquiv]
 scoped infix:50 " ≈ᵅ " => AlphaEquiv
 
-theorem IsRenaming.id : IsRenaming (idSubst S) :=
-  ⟨idSubst S, fun u => by rw [apply_id, apply_id]⟩
+theorem IsRenaming.id : IsRenaming (S := S) Subst.id :=
+  ⟨Subst.id, fun u => by rw [apply_id, apply_id], fun u => by rw [apply_id, apply_id]⟩
 
 theorem AlphaEquiv.refl (t : Term S) : t ≈ᵅ t :=
-  ⟨idSubst S, IsRenaming.id, apply_id t⟩
-
-/-- `≈ₜ`-equivalent terms have α-equivalent `smtMin`s. The output is
-determined up to renaming (variable-permutation), not arbitrary `≈ₜ`. -/
-axiom smtMin_resp_alpha {s t : Term S} (h : s ≈ₜ t) :
-    ∃ ρ : Subst S, IsRenaming ρ ∧ apply ρ (smtMin s) = smtMin t
+  ⟨Subst.id, IsRenaming.id, apply_id t⟩
 
 /-! ## Irreducibility transfer (renaming preserves it) -/
 
@@ -108,10 +113,60 @@ theorem IsRenaming.preserves_irreducible {R : Term S → Term S → Prop} {s' : 
     {ρ : Subst S} (hρ : IsRenaming ρ)
     (hstep_subst : ∀ {a b : Term S}, R a b → ∀ τ, R (apply τ a) (apply τ b))
     (hirr : ∀ u, ¬ R s' u) : ∀ u, ¬ R (apply ρ s') u := by
-  rcases hρ with ⟨τ, hτ⟩
+  rcases hρ with ⟨τ, hτL, _⟩
   intro u hstep
   have h := hstep_subst hstep τ
-  rw [hτ] at h
+  rw [hτL] at h
   exact hirr (apply τ u) h
+
+/-! ## Structural facts about renamings
+
+A renaming maps each variable to a variable, preserves term size, and
+its inverse is itself a renaming. These follow from the two-sided
+inverse condition without further axioms. -/
+
+/-- A renaming maps each variable to a variable. -/
+theorem IsRenaming.var_to_var {ρ : Subst S} (hρ : IsRenaming ρ) (v : S.V) :
+    ∃ v' : S.V, ρ v = Term.var v' := by
+  rcases hρ with ⟨τ, hL, _⟩
+  have h : apply τ (ρ v) = Term.var v := by
+    have := hL (Term.var v); simpa using this
+  generalize hρv : ρ v = w at h
+  cases w with
+  | var v'      => exact ⟨v', rfl⟩
+  | node f args => simp [apply_node] at h
+
+/-- The inverse of a renaming is itself a renaming. -/
+theorem IsRenaming.flip {ρ : Subst S} (hρ : IsRenaming ρ) :
+    ∃ τ : Subst S, IsRenaming τ ∧
+      (∀ u, apply ρ (apply τ u) = u) ∧ (∀ u, apply τ (apply ρ u) = u) := by
+  rcases hρ with ⟨τ, hL, hR⟩
+  exact ⟨τ, ⟨ρ, hR, hL⟩, hR, hL⟩
+
+/-- Renaming preserves term size: each variable maps to a variable
+(size 1), and structural induction lifts this to all terms. -/
+theorem apply_renaming_size {ρ : Subst S} (hρ : IsRenaming ρ) (t : Term S) :
+    Term.size (apply ρ t) = Term.size t := by
+  induction t with
+  | var v =>
+      rcases hρ.var_to_var v with ⟨v', hv'⟩
+      simp [apply_var, hv', Term.size]
+  | node f args ih =>
+      simp only [apply_node, Term.size]
+      congr 1
+      exact Finset.sum_congr rfl (fun i _ => ih i)
+
+/-! ## α-equivariance of `≈ₜ`
+
+`Term.var v` is an algorithm-level placeholder; relabelling variables
+doesn't change the SMT-equivalence class. (User-level "variables" in
+input formulas are 0-ary symbols of `S.σ`, not `Term.var`.) -/
+
+/-- α-renaming preserves the `≈ₜ`-class. Distinct from `equiv_subst`,
+which says `apply ρ s ≈ₜ apply ρ t` when `s ≈ₜ t`: this says every
+term is `≈ₜ`-related to its renamings, even when the renaming is not
+the identity. -/
+axiom equiv_rename {ρ : Subst S} (hρ : IsRenaming ρ) (s : Term S) :
+    s ≈ₜ apply ρ s
 
 end EnumRules
