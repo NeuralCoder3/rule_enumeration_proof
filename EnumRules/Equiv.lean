@@ -3,9 +3,18 @@ import EnumRules.Term
 /-
 # Opaque equivalence relation on terms
 
-The SMT oracle decides some equivalence `∼` between terms. We axiomatize
-it as an equivalence relation closed under congruence. Nothing else is
-needed for the correctness proof.
+## Role
+The semantic equivalence `≈ₜ` decided by SMT. Used to state soundness
+of rewriting (`Step.equiv_of`) and the completeness conclusion
+(equivalent inputs share an `smtMin`).
+
+## Axioms (4)
+* `equiv_refl`, `equiv_symm`, `equiv_trans` — `≈ₜ` is an equivalence relation.
+  Used everywhere a chain of equalities-up-to-`≈ₜ` is built (e.g.
+  `complete_can` chains `s ≈ s' ≈ t' ≈ t` to apply `smtMin_resp`).
+* `equiv_congr` — congruence over function nodes. Used in
+  `Step.equiv_of` (Rewrite.lean) for the contextual case, and in
+  `subterm_of_minimal_is_minimal` (Algorithm.lean).
 -/
 
 namespace EnumRules

@@ -7,9 +7,13 @@ import EnumRules.Signature
 /-
 # Ground terms over a signature
 
-Terms are purely ground: each node is a symbol `f` applied to
-`S.arity f` argument terms. "Variables" of the source algorithm are
-modeled as 0-ary symbols in the signature.
+## Role
+Inductive `Term S` and a `size` function. Variables are modelled as
+0-ary symbols (the algorithm's "var-constants"). `size_arg_lt` is the
+key fact powering size-induction in `Algorithm.lean` / `Correctness.lean`.
+
+## Axioms
+None. Pure inductive type + structural recursion.
 -/
 
 inductive Term (S : Signature) : Type where

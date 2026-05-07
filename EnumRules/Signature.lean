@@ -1,9 +1,13 @@
 /-
 # Signatures
 
-A `Signature` packages the symbol type together with an arity function.
-Decidable equality on symbols is assumed so that decidable equality on
-terms can be derived.
+## Role
+Bundle a symbol type `σ` with an arity function. The base of the term
+language: every term is a function symbol applied to its arity-many
+arguments.
+
+## Axioms
+None. Decidable equality on `σ` is a structure field, not an axiom.
 -/
 
 structure Signature where

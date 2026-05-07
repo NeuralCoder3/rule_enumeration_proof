@@ -6,24 +6,28 @@ open scoped Classical
 /-
 # The enumeration algorithm
 
-We build up the rule set `R n` and the irreducible set `I n` by
-processing sizes `1, 2, …, n` in order.
+## Role
+Defines, by mutual recursion on size, the rule set `R S n` and the
+irreducible set `I S n`. At size `k`, enumerate terms whose strict
+subterms come from `I S (k-1)`; for each, either skip (simplifies via
+already-known rules), add to `I` (if `smtMin l = l`), or add a rule
+`(l, smtMin l)` to `R` (if `smtMin l ≠ l`).
 
-At size `k`, we enumerate terms whose strict subterms all belong to the
-irreducible set `I (k-1)` from the previous iteration.
+## Proof obligations established here
+* `mem_R` — characterises rule membership for use by `Correctness.lean`'s
+  `reaches_smtMin` to inject a synthesised rule.
+* `rule_equiv`, `rule_kbo` — every `R`-rule is `≈ₜ`-sound and
+  `≺ₖ`-decreasing. Plumbed into `Step.equiv_of` / `Step.kbo_of`.
+* `subterm_of_minimal_is_minimal` — if `node f args` is its own `smtMin`,
+  every `args i` is too. Drives the inductive step of `minimal_in_I`.
 
-For each such term `l`:
-- If `l` simplifies with rules from smaller sizes (strict size decrease),
-  we discard it — it is already covered.
-- Otherwise we call SMT to obtain `smtMin l`.
-  - If `smtMin l = l`, we add `l` to the irreducible set `I`.
-  - If `smtMin l ≠ l`, we add the rule `(l, smtMin l)` to `R`.
-
-Rule application is via *substitution*: a rule `(l, r) ∈ R` fires
-whenever a subterm matches `apply σ l`, replacing it by `apply σ r`.
-The substitution-monotonicity axiom `kbo_subst` guarantees that the
-synthesised order on rule skeletons (`r ≺ₖ l`) lifts to every
-substitution instance.
+## Axioms (1)
+* `mem_termsFromIrreducible` — characterises which terms the
+  enumeration produces. Used in `minimal_in_I` (Correctness.lean) to
+  show a minimal node is enumerated, and in `reaches_smtMin` to confirm
+  `s' = node f (smtMin args)` is enumerated and hence has a rule.
+  `termsFromIrreducible` itself is `opaque` — concrete enumerators are
+  outside the abstract proof.
 -/
 
 namespace EnumRules

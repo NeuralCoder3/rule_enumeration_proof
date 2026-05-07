@@ -3,9 +3,25 @@ import EnumRules.Term
 /-
 # Knuth-Bendix ordering (axiomatized)
 
-We axiomatize the properties of KBO used by the correctness proof:
-`kbo` is well-founded, transitive, total on ground terms, monotone under
-one-hole contexts, and (with weight 1) never grows term size.
+## Role
+The reduction order `≺ₖ`. Rewrite rules are `(l, r)` with `r ≺ₖ l`,
+which makes one-step rewriting strictly `≺ₖ`-decreasing — hence
+terminating by well-foundedness.
+
+## Axioms (5)
+* `kbo_wf` — well-founded. Used in `terminates` (Correctness) and
+  `terminates_can` (CanonicalLayer) to show rewriting terminates;
+  also via `WellFounded.induction` in `reaches_normal_form_can`.
+* `kbo_trans` — transitivity. Used in `StepStar.kbo_of` to chain
+  multiple rewrite steps into a single `≺ₖ` decrease.
+* `kbo_total` — totality on ground terms. Used in `smtMin_resp`
+  and `smtMin_le` (Oracle.lean) to compare `smtMin t` with `t`.
+* `kbo_mono_ctx` — monotonicity under one-hole contexts. Used in
+  `Step.kbo_of` (Rewrite.lean) for the contextual case, and in
+  `subterm_of_minimal_is_minimal` (Algorithm.lean).
+* `kbo_size_le` — `≺ₖ` doesn't grow size (KBO weight 1). Used in
+  `smtMin_size` to bound the SMT oracle's output size, which the
+  size-induction in `reaches_smtMin` (Correctness.lean) relies on.
 -/
 
 namespace EnumRules

@@ -8,10 +8,27 @@ import EnumRules.Subst
 /-
 # Substitution-based rewriting
 
-A rule set is a finite set of term pairs. One-step rewriting is
-substitution-based contextual closure: a rule `(l, r)` fires by
-matching `apply σ l` and replacing it with `apply σ r`, optionally
-under a one-hole context.
+## Role
+Defines `Step R` (one-step rewrite) and its reflexive-transitive
+closure `StepStar R`. `Step.root σ` fires a rule `(l, r) ∈ R` under
+substitution `σ`; `Step.ctx` closes under one-hole contexts.
+
+Three properties of `Step` carry the proof:
+* `equiv_of` — rewriting preserves `≈ₜ` (uses `equiv_subst`,
+  `equiv_congr`, `equiv_refl`).
+* `kbo_of` — rewriting strictly decreases `≺ₖ` (uses `kbo_subst`,
+  `kbo_mono_ctx`).
+* `subst` — rewriting commutes with `apply ρ` (uses `apply_comp`,
+  `apply_node`). Foundation for α-equivariance in CanonicalLayer.
+
+`Step.root_id` is the ground-rule firing form, used wherever a rule
+fires "as written" (no further substitution) — concretely,
+`Correctness.lean`'s `reaches_smtMin` final step. Built from
+`Step.root (idSubst S)` plus `apply_id`.
+
+## Axioms
+None. Everything in this file is a theorem from the axioms in
+`Equiv.lean`, `Kbo.lean`, `Subst.lean`.
 -/
 
 namespace EnumRules
@@ -79,6 +96,22 @@ theorem lift {R₁ R₂ : RuleSet S} (hR : R₁ ⊆ R₂) {s t : Term S}
   | root σ hmem => exact Step.root σ (hR hmem)
   | ctx _ hrest ih => exact Step.ctx ih hrest
 
+/-- Substitution-stability: rewriting commutes with `apply`. A step
+under substitution `σ` lifts under `ρ` to a step under `Subst.comp ρ σ`,
+and contextual closure follows by `apply_node`. -/
+theorem subst {R : RuleSet S} {s t : Term S} (h : Step R s t) (ρ : Subst S) :
+    Step R (apply ρ s) (apply ρ t) := by
+  induction h with
+  | @root l r σ hmem =>
+      have h₁ : Step R (apply (Subst.comp ρ σ) l) (apply (Subst.comp ρ σ) r) :=
+        Step.root (Subst.comp ρ σ) hmem
+      rw [apply_comp, apply_comp] at h₁
+      exact h₁
+  | @ctx f as bs i _ hrest ih =>
+      rw [apply_node, apply_node]
+      refine Step.ctx (i := i) ih ?_
+      intro j hj; rw [hrest j hj]
+
 end Step
 
 namespace StepStar
@@ -111,6 +144,15 @@ theorem lift {R₁ R₂ : RuleSet S} (hR : R₁ ⊆ R₂) {s t : Term S}
   | refl => exact Relation.ReflTransGen.refl
   | tail _ hstep ih =>
     exact Relation.ReflTransGen.tail ih (Step.lift hR hstep)
+
+/-- Substitution-stability of multi-step rewriting. -/
+theorem subst {R : RuleSet S} {s t : Term S}
+    (h : StepStar R s t) (ρ : Subst S) :
+    StepStar R (apply ρ s) (apply ρ t) := by
+  induction h with
+  | refl => exact Relation.ReflTransGen.refl
+  | tail _ hstep ih =>
+      exact Relation.ReflTransGen.tail ih (Step.subst hstep ρ)
 
 end StepStar
 

@@ -2,21 +2,25 @@ import EnumRules.Equiv
 import EnumRules.Kbo
 
 /-
-# SMT oracle: KBO-minimal representative of the ∼-class
+# SMT oracle: KBO-minimal representative of the ≈ₜ-class
 
-`smtMin t` is the output of the SMT call: an ∼-equivalent term that is
-KBO-minimal in its ∼-class.
+## Role
+`smtMin t` returns a `≺ₖ`-minimum element of `t`'s `≈ₜ`-class.
+Foundation for both rule synthesis (rules are `(l, smtMin l)` with
+`smtMin l ≠ l`) and the lookup phase of normalisation
+(`smtMin_resp` makes lookup respect `≈ₜ`).
 
-Axioms:
-* `smtMin_equiv` — the output is ∼-equivalent to the input
-* `smtMin_min`  — the output is KBO-minimal in its ∼-class
+## Axioms (2)
+* `smtMin_equiv` — `smtMin t ≈ₜ t`. The output is in the right class.
+  Used in `rule_equiv` (Algorithm) to show every rule preserves `≈ₜ`,
+  and inside `smtMin_resp` and `smtMin_le`.
+* `smtMin_min` — no `≈ₜ`-equivalent term is `≺ₖ`-smaller than `smtMin t`.
+  Used in `rule_kbo` (Algorithm) to show rules are `≺ₖ`-decreasing,
+  in `subterm_of_minimal_is_minimal`, and inside `smtMin_resp`.
 
-Derived theorems:
-* `smtMin_resp`      — `s ≈ₜ t → smtMin s = smtMin t`
-* `smtMin_idem`      — `smtMin (smtMin t) = smtMin t`
-* `smtMin_le`        — `smtMin t = t ∨ smtMin t ≺ₖ t`
-* `smtMin_size`      — `size (smtMin t) ≤ size t`  (from `smtMin_le` + `kbo_size_le`)
-* `smtMin_equiv_symm` — `t ≈ₜ smtMin t`
+Everything else (`smtMin_resp`, `smtMin_idem`, `smtMin_le`,
+`smtMin_size`, `smtMin_equiv_symm`) is derived from these two plus
+the `Equiv` and `Kbo` axioms.
 -/
 
 namespace EnumRules

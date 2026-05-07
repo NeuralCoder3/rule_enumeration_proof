@@ -3,21 +3,35 @@ import EnumRules.Algorithm
 open scoped Classical
 
 /-
-# Correctness
+# Correctness (unfiltered algorithm)
 
-Three lemmas, by induction on the size bound `n`:
+## Proof idea
+Show, by induction on the size bound `n`, that the rule set `R S n` is
+"complete enough" to drive every term of size ≤ n to its `smtMin`:
 
-* `terminates`: `Step (R S n)` is well-founded.
-* `minimal_in_I`: every `≈ₜ`-minimal term of size ≤ n is in `I S n`.
-* `reaches_smtMin`: every term of size ≤ n rewrites to its `smtMin`
-  via `StepStar (R S n)`.
+1. `terminates` — well-founded by `kbo_wf` + `rule_kbo`.
+2. `stepstar_node` — lift sub-term reductions to a whole-node reduction
+   via Finset induction over argument positions.
+3. `minimal_in_I` — every `smtMin`-fixed term of size ≤ n lives in `I S n`.
+   Inductive step: subterms of a minimal node are minimal
+   (`subterm_of_minimal_is_minimal`), hence in `I` by IH; the node is
+   then `termsFromIrreducible`-enumerated and added to `I` because it
+   doesn't simplify (its smaller `≈ₜ`-equivalents would contradict
+   `smtMin_min`).
+4. `reaches_smtMin` — IH gives subterms `args i →* smtMin (args i)`.
+   Lifting via `stepstar_node` produces `s' = node f (smtMin args)`,
+   `≈ₜ`-equivalent to `s`. Three sub-cases on the `n+1` boundary:
+   `size s' ≤ n` (use IH), `s'` simplifies (use IH on the reduct),
+   or `s'` is enumerated and has a rule `(s', smtMin s')` to fire.
+5. `complete` — combine: `s →* smtMin s` and `t →* smtMin t`, with
+   `smtMin s = smtMin t` by `smtMin_resp`.
 
-The completeness theorem then follows from `smtMin_resp`: for any two
-`≈ₜ`-equivalent terms, both rewrite to the *same* term `smtMin s = smtMin t`.
+Rule application is via substitution (`Step.root σ`); the identity
+substitution `idSubst` (`Step.root_id`) covers the ground case.
 
-The proof uses no renaming relation: rule application is via
-substitution (`Step.root σ`); the identity substitution `idSubst` covers
-ground rule firing through `Step.root_id`.
+## Axioms
+None. All theorems derive from the axioms in `Equiv`, `Kbo`, `Oracle`,
+`Subst`, `Algorithm`.
 -/
 
 namespace EnumRules
