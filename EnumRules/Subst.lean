@@ -12,17 +12,12 @@ identity, and composition are defined directly. The previously
 The remaining axioms are about how `≈ₜ` and `≺ₖ` interact with
 substitution — those are external to the substitution machinery itself.
 
-## Axioms in this file (3)
+## Axioms in this file (2)
 
 * `kbo_subst : s ≺ₖ t → apply σ s ≺ₖ apply σ t` (substitution-monotonicity
   of the reduction order). KBO with positive weights satisfies this.
 * `equiv_subst : s ≈ₜ t → apply σ s ≈ₜ apply σ t` (the SMT equivalence
   is closed under substitution).
-* `equiv_rename : IsRenaming ρ → s ≈ₜ apply ρ s` (renaming variables
-  preserves the SMT-equivalence class). Reflects that `Term.var v` is
-  an algorithm-level placeholder; user-level "variables" are 0-ary
-  nodes in `S.σ`. Note this is *not* derivable from `equiv_subst`,
-  which only gives `apply ρ s ≈ₜ apply ρ s`.
 
 These are not derivable from the structural definition of `apply`.
 -/
@@ -119,54 +114,21 @@ theorem IsRenaming.preserves_irreducible {R : Term S → Term S → Prop} {s' : 
   rw [hτL] at h
   exact hirr (apply τ u) h
 
-/-! ## Structural facts about renamings
+/-! ## Ground terms are fixed by substitution
 
-A renaming maps each variable to a variable, preserves term size, and
-its inverse is itself a renaming. These follow from the two-sided
-inverse condition without further axioms. -/
+User-level "variables" in input formulas are 0-ary symbols of `S.σ`,
+*not* `Term.var v`. Runtime inputs are therefore S.V-ground, and
+substitution is the identity on them. -/
 
-/-- A renaming maps each variable to a variable. -/
-theorem IsRenaming.var_to_var {ρ : Subst S} (hρ : IsRenaming ρ) (v : S.V) :
-    ∃ v' : S.V, ρ v = Term.var v' := by
-  rcases hρ with ⟨τ, hL, _⟩
-  have h : apply τ (ρ v) = Term.var v := by
-    have := hL (Term.var v); simpa using this
-  generalize hρv : ρ v = w at h
-  cases w with
-  | var v'      => exact ⟨v', rfl⟩
-  | node f args => simp [apply_node] at h
-
-/-- The inverse of a renaming is itself a renaming. -/
-theorem IsRenaming.flip {ρ : Subst S} (hρ : IsRenaming ρ) :
-    ∃ τ : Subst S, IsRenaming τ ∧
-      (∀ u, apply ρ (apply τ u) = u) ∧ (∀ u, apply τ (apply ρ u) = u) := by
-  rcases hρ with ⟨τ, hL, hR⟩
-  exact ⟨τ, ⟨ρ, hR, hL⟩, hR, hL⟩
-
-/-- Renaming preserves term size: each variable maps to a variable
-(size 1), and structural induction lifts this to all terms. -/
-theorem apply_renaming_size {ρ : Subst S} (hρ : IsRenaming ρ) (t : Term S) :
-    Term.size (apply ρ t) = Term.size t := by
+/-- Substitution is the identity on ground terms. -/
+theorem apply_ground {σ : Subst S} {t : Term S} (h : Term.IsGround t) :
+    apply σ t = t := by
   induction t with
-  | var v =>
-      rcases hρ.var_to_var v with ⟨v', hv'⟩
-      simp [apply_var, hv', Term.size]
+  | var v       => exact h.elim
   | node f args ih =>
-      simp only [apply_node, Term.size]
+      rw [apply_node]
       congr 1
-      exact Finset.sum_congr rfl (fun i _ => ih i)
-
-/-! ## α-equivariance of `≈ₜ`
-
-`Term.var v` is an algorithm-level placeholder; relabelling variables
-doesn't change the SMT-equivalence class. (User-level "variables" in
-input formulas are 0-ary symbols of `S.σ`, not `Term.var`.) -/
-
-/-- α-renaming preserves the `≈ₜ`-class. Distinct from `equiv_subst`,
-which says `apply ρ s ≈ₜ apply ρ t` when `s ≈ₜ t`: this says every
-term is `≈ₜ`-related to its renamings, even when the renaming is not
-the identity. -/
-axiom equiv_rename {ρ : Subst S} (hρ : IsRenaming ρ) (s : Term S) :
-    s ≈ₜ apply ρ s
+      funext i
+      exact ih i (h i)
 
 end EnumRules

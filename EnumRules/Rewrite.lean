@@ -112,6 +112,18 @@ theorem subst {R : RuleSet S} {s t : Term S} (h : Step R s t) (ρ : Subst S) :
       refine Step.ctx (i := i) ih ?_
       intro j hj; rw [hrest j hj]
 
+/-- Contrapositive of `Step.ctx`: subterms of an irreducible node are
+themselves irreducible. -/
+theorem irreducible_arg {R : RuleSet S} {f : S.σ}
+    {args : Fin (S.arity f) → Term S} {i : Fin (S.arity f)}
+    (h : ∀ u, ¬ Step R (Term.node f args) u) :
+    ∀ v, ¬ Step R (args i) v := by
+  intro v hstep
+  apply h (Term.node f (fun j => if j = i then v else args j))
+  refine Step.ctx (as := args) (bs := fun j => if j = i then v else args j) (i := i) ?_ ?_
+  · simpa using hstep
+  · intro j hj; simp [hj]
+
 end Step
 
 namespace StepStar
@@ -198,5 +210,20 @@ theorem simplifiesWith.kbo_lt {R : RuleSet S}
   · rw [heq] at hsize_u
     exact absurd hsize_u (Nat.lt_irrefl _)
   · exact ⟨u, htu, hsize_u, hlt⟩
+
+/-- An irreducible term doesn't simplify: no `StepStar` path can lower
+its size. -/
+theorem not_simplifiesWith_of_irreducible {R : RuleSet S} {t : Term S}
+    (h : ∀ u, ¬ Step R t u) : ¬ simplifiesWith R t := by
+  rintro ⟨u, htu, hsize⟩
+  have heq : t = u := by
+    clear hsize
+    induction htu with
+    | refl => rfl
+    | tail _ hstep ih =>
+        rw [← ih] at hstep
+        exact (h _ hstep).elim
+  rw [← heq] at hsize
+  exact Nat.lt_irrefl _ hsize
 
 end EnumRules
