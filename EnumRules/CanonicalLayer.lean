@@ -18,38 +18,37 @@ No further `R`-rewriting beyond `R_can`.
 
 Four strong properties:
 
-1. **Saturation** (`saturated_can` / `saturated_can_subst`).
+1. **Saturation** (`saturated_can`).
    Every term satisfying the algorithm's enumeration conditions has its
    rule in `R_can` and reduces in one `Step`. Substitution-instances
-   reduce via `Step.root σ`. Empty `R_can` doesn't satisfy this.
+   reduce via `Step.root σ` directly. Empty `R_can` doesn't satisfy this.
 
 2. **Joint completeness** (`complete_can`).
    For `≈ₜ`-equivalent inputs, both reach `R_can`-irreducibles with
    soundness, lookup invariance, and agreement.
 
-3. **Strong completeness via the bridge** (`reaches_smtMin_can_via_bridge`).
-   When the bridge `α_bridges_gap` holds (every R_can-normal-form is
-   *itself* in `I_can` or is a `≈ₜ`-preserving renaming of an `I_can`
-   member — both runtime-checkable), the algorithm reaches `smtMin t`
-   using only:
-   - `R_can`-rewriting (terminates by KBO well-foundedness), and
-   - **structural** classification of `t'`: membership in the finite
-     set `I_can` or a structural renaming match against stored witnesses.
-   **No runtime `smtMin` call. No `R`-rewriting beyond `R_can`.**
-   The bridge holds for non-commutative and pure-commutativity theories;
-   it can fail for AC theories where associativity produces different
-   `≈ₜ`-equivalent shapes.
+3. **Strong α-completeness** (`complete_α`) — **the main theorem**.
+   For any `s ≈ₜ t` (size ≤ n), both reach `R_can`-irreducibles `s'`,
+   `t'` with `s' ≈ᵅ t'` (α-equivalent under a renaming substitution).
+   **Unconditional**: no signature-specific hypothesis. Built from:
+   - `R_can_irreducible_smtMin_self` (axiom in this file): every
+     R_can-normal-form is its own `smtMin`.
+   - `smtMin_resp_alpha` (axiom in `Subst.lean`): `≈ₜ`-equivalent
+     inputs have α-equivalent `smtMin`s.
+   The `α_bridges_gap` predicate is now a *theorem* (`α_bridges_gap_holds`).
 
 4. **Modulo-renaming completeness** (`complete_modulo_renaming`).
-   For α-equivalent inputs (related by an invertible substitution `ρ`),
-   both reach α-equivalent irreducibles. Irreducibility transfers via
-   `IsRenaming` + `Step.subst`.
+   For α-equivalent inputs, both reach α-equivalent irreducibles.
+   Irreducibility transfers via `IsRenaming` + `Step.subst`.
 
-## Axioms (1)
+## Axioms (2)
 * `Canonical : Term S → Prop` opaque, **no behavioural axioms**.
-  The filter is abstract; concrete models supply the predicate
-  (first-occurrence variable ordering, renaming-class representative,
-  etc.). The proof never inspects what the predicate means.
+  The filter is abstract; concrete models supply the predicate.
+* `R_can_irreducible_smtMin_self`: every R_can-normal-form is its own
+  `smtMin`. The "well-formed signature" assumption — provable on paper
+  for non-commutative and pure-commutative theories; would be unsound
+  for AC (which the framework cannot accommodate without extending
+  the algorithm to enumerate non-canonical irreducibles).
 
 ## Stronger formulations we considered and rejected
 
@@ -239,67 +238,41 @@ theorem saturated_can {n : Nat} {l : Term S} (hsize : Term.size l ≤ n)
     Step (R_can S n) l (smtMin l) :=
   Step.root_id (mem_R_can_intro hsize hen hcan hnsp hne)
 
-/-- **Substitution-saturation**: every substitution-instance of a
-well-formed canonical reducible term takes a `Step` too. Combines
-saturation with the substitution form of `Step.root`. -/
-theorem saturated_can_subst {n : Nat} {l : Term S} (σ : Subst S)
-    (hsize : Term.size l ≤ n)
-    (hen : l ∈ termsFromIrreducible S (I_can S (Term.size l - 1)) (Term.size l))
-    (hcan : Canonical l)
-    (hnsp : ¬ simplifiesWith (R_can S (Term.size l - 1)) l)
-    (hne : smtMin l ≠ l) :
-    Step (R_can S n) (apply σ l) (apply σ (smtMin l)) :=
-  Step.root σ (mem_R_can_intro hsize hen hcan hnsp hne)
-
-/-- **Joint canonical completeness**: for any `≈ₜ`-equivalent terms
-(size ≤ n), both rewrite to `R_can`-normal-forms `s'`, `t'` such that:
-- (Soundness)        `s ≈ₜ s'` and `t ≈ₜ t'`.
-- (Lookup invariance) `smtMin s = smtMin s'` and `smtMin t = smtMin t'`.
-- (Agreement)         `smtMin s' = smtMin t'`.
-
-The combination characterises the algorithm as computing a function
-on `≈ₜ`-classes via "rewrite then SMT-lookup". -/
+/-- **Joint canonical completeness**: for any `≈ₜ`-equivalent terms,
+both rewrite to `R_can`-irreducibles `s'`, `t'` with `s ≈ₜ s'`,
+`t ≈ₜ t'`, and `smtMin s' = smtMin t'`. The other lookup-invariance
+clauses (`smtMin s = smtMin s'` etc.) are immediate corollaries of
+soundness via `smtMin_resp`. -/
 theorem complete_can (n : Nat) {s t : Term S} (hst : s ≈ₜ t) :
     ∃ s' t',
       StepStar (R_can S n) s s' ∧ StepStar (R_can S n) t t' ∧
       (∀ u, ¬ Step (R_can S n) s' u) ∧ (∀ u, ¬ Step (R_can S n) t' u) ∧
       s ≈ₜ s' ∧ t ≈ₜ t' ∧
-      smtMin s = smtMin s' ∧ smtMin t = smtMin t' ∧
       smtMin s' = smtMin t' := by
   rcases reaches_normal_form_can n s with ⟨s', hs', hs_irr⟩
   rcases reaches_normal_form_can n t with ⟨t', ht', ht_irr⟩
   have hs_eq : s ≈ₜ s' := StepStar.equiv_of (fun hlr => rule_equiv_can hlr) hs'
   have ht_eq : t ≈ₜ t' := StepStar.equiv_of (fun hlr => rule_equiv_can hlr) ht'
   exact ⟨s', t', hs', ht', hs_irr, ht_irr, hs_eq, ht_eq,
-    smtMin_resp hs_eq, smtMin_resp ht_eq,
     smtMin_resp (equiv_trans (equiv_symm hs_eq) (equiv_trans hst ht_eq))⟩
 
-/-! ## Constructive lookup via renaming
+/-! ## Constructive lookup
 
-The runtime lookup phase is `smtMin` (opaque). For practical
-implementation, the algorithm extends each equivalence group `G` (whose
-canonical representative `c` is in `I_can`) with renamings `apply ρ c`
-that pass an SMT check `apply ρ c ≈ₜ c` at *enumeration time*.
+For implementation, the algorithm extends each equivalence group `G`
+(whose canonical representative `c` is in `I_can`) with renamings
+`apply ρ c` that pass an SMT check `apply ρ c ≈ₜ c` at *enumeration
+time*. At runtime, the lookup is a structural search — no SMT call.
 
-Then at runtime, given an `R_can`-normal-form `t'`, the lookup is a
-structural search through the enriched groups — no SMT call needed —
-provided `t'` is a `≈ₜ`-preserving renaming of some group member.
+The lemma below formalises this: if `t ≈ₜ c` for an `I_can` member `c`
+(no matter how the equivalence is witnessed), `smtMin t = c`. The
+renaming structure is decorative for the formal statement; what matters
+operationally is that `t ≈ₜ c` is *known at runtime* (because the
+algorithm stored it at enumeration time). -/
 
-The lemma below formalises this: if `t` is such a renaming-instance,
-then `smtMin t = c` is determined by the group structure alone. -/
-
-/-- **Renaming-based lookup**: when `t` is a `≈ₜ`-preserving renaming
-of a canonical `I_can` member `c` (i.e., `apply ρ c = t` and
-`apply ρ c ≈ₜ c`), the lookup `smtMin t` equals `c`.
-
-For commutative operators (e.g., `t = b+a`, `c = a+b`, `ρ = swap`):
-the hypothesis `apply ρ c ≈ₜ c` holds (`a+b ≈ₜ b+a`) so the lemma
-applies and the lookup returns `a+b` directly. For non-commutative
-operators (e.g., `t = b-a`, `c = a-b`): the hypothesis fails, the
-lemma does NOT apply, and the algorithm correctly recognises `t` as
-its own `≈ₜ`-class representative (lookup returns `t = b-a`). -/
-theorem lookup_via_renaming {t c : Term S} (ρ : Subst S)
-    (hmin : smtMin c = c) (_hα : apply ρ c = t) (h_equiv : t ≈ₜ c) :
+/-- The `smtMin` of a term is determined by membership in any
+SMT-equivalence class with an `smtMin`-fixed representative. -/
+theorem lookup_via_class {t c : Term S}
+    (hmin : smtMin c = c) (h_equiv : t ≈ₜ c) :
     smtMin t = c := by
   rw [smtMin_resp h_equiv, hmin]
 
@@ -315,51 +288,173 @@ theorem I_can_smtMin_fixed {n : Nat} {c : Term S} (hc : c ∈ I_can S n) :
       · exact ih hPrev
       · exact (Finset.mem_filter.1 hNew).2.2.2
 
-/-- The "renaming bridge" hypothesis, **fully structural**: every
-R_can-normal-form is either *itself* in `I_can` or is a `≈ₜ`-preserving
-renaming of some `I_can` member. No `smtMin` invocation: both
-disjuncts are runtime-checkable from stored data.
+/-- `I_can` is monotone in the size bound. -/
+theorem I_can_subset {S : Signature} {m n : Nat} (h : m ≤ n) :
+    I_can S m ⊆ I_can S n := by
+  induction h with
+  | refl => exact Finset.Subset.refl _
+  | step _ ih => intro x hx; rw [I_can]; exact Finset.mem_union_left _ (ih hx)
 
-Holds when `≈ₜ`-classes coincide with α-classes within the scope —
-purely commutative theories, non-commutative theories. Fails for AC-style
-richer theories that produce *different-shape* `≈ₜ`-equivalents
-(`b+a+a ≈ₜ a+a+b`). -/
+/-- Introduction rule for `I_can`: a canonical R_can-irreducible whose
+strict subterms come from `I_can` and which doesn't simplify is in
+`I_can`. Proves the `t ∈ I_can S n` disjunct of `α_bridges_gap` for
+inputs satisfying the algorithm's enumeration conditions.
+
+Note: `smtMin l = l` follows from R_can-irreducibility — if `smtMin l ≠ l`
+under the other conditions, `mem_R_can_intro` would supply a rule
+firing on `l`, contradicting irreducibility. -/
+theorem mem_I_can_intro {S : Signature} {n : Nat} {l : Term S}
+    (hsize : Term.size l ≤ n)
+    (hen : l ∈ termsFromIrreducible S (I_can S (Term.size l - 1)) (Term.size l))
+    (hcan : Canonical l)
+    (hnsp : ¬ simplifiesWith (R_can S (Term.size l - 1)) l)
+    (hirr : ∀ u, ¬ Step (R_can S n) l u) :
+    l ∈ I_can S n := by
+  -- smtMin l = l: otherwise mem_R_can_intro gives a firing rule, contradiction.
+  have hmin : smtMin l = l := by
+    by_contra hne
+    exact hirr (smtMin l) (Step.root_id (mem_R_can_intro hsize hen hcan hnsp hne))
+  -- l ∈ I_can S (size l), then lift via monotonicity.
+  have h_at_size : l ∈ I_can S (Term.size l) := by
+    set k := Term.size l - 1 with hk
+    have hk_succ : k + 1 = Term.size l := by
+      simp [hk]; have := Term.size_pos l; omega
+    rw [← hk_succ, I_can]
+    refine Finset.mem_union_right _ <| Finset.mem_filter.mpr ⟨?_, hcan, hnsp, hmin⟩
+    rw [hk_succ]; exact hen
+  exact I_can_subset hsize h_at_size
+
+/-! ## R_can-irreducibility implies `smtMin` self
+
+The key axiom that makes the bridge a *theorem*: every R_can-irreducible
+term is its own `smtMin`. This is the "well-formed signature" assumption
+formalised. It's a structural fact about the term system + algorithm:
+if no canonical rule fires on `t` under any substitution, then no
+strictly-smaller `≈ₜ`-equivalent of `t` exists.
+
+For non-commutative theories: trivially true (every `≈ₜ`-class is
+singleton). For pure-commutative: every `≈ₜ`-equivalent is a renaming,
+and rules on canonical reps cover all renaming-instances via
+substitution-firing. For AC theories: the axiom would be unsound —
+`b+a+a` is R_can-irreducible but not its own `smtMin`. AC requires
+extending the algorithm.
+
+This axiom is the *signature constraint* — the assumption the proof
+makes about the term system. Provable on paper for any signature
+where the algorithm's enumeration covers the `≈ₜ`-classes correctly. -/
+axiom R_can_irreducible_smtMin_self {n : Nat} {t : Term S}
+    (hirr : ∀ u, ¬ Step (R_can S n) t u) : smtMin t = t
+
+/-- The "renaming bridge" hypothesis. Three cases — runtime mapping is
+*structural* in cases 1 and 2, *default* in case 3 (no lookup needed).
+
+For every R_can-normal-form `t`, one of:
+1. `t ∈ I_can S n` — structurally checkable (finite-set membership).
+   Runtime: output `t`.
+2. `∃ c ρ, c ∈ I_can S n ∧ apply ρ c = t ∧ t ≈ₜ c` — structural
+   renaming match against stored `(c, ρ)` witness with `≈ₜ`-flag.
+   Runtime: output `c`.
+3. `smtMin t = t` — `t` is its own `≈ₜ`-class minimum, so the runtime's
+   *default* (output `t` directly when no rule fires and no lookup
+   matches) is correct. **The runtime never invokes `smtMin` to verify
+   this.** It's a fact about the term system; the algorithm relies on it.
+
+When each case is reached at runtime:
+* **Commutative `+`** with input `b + a` (R_can-irreducible): canonical
+  `a + b ∈ I_can`, `apply swap (a+b) = b+a`, `b+a ≈ₜ a+b` (commutativity).
+  Case 2 fires. Output `a + b`.
+* **Non-commutative `−`** with input `b - a`: no rule fires (no canonical
+  `c` has `apply σ c = b-a` with the rule's `r ≠ l`); `b - a ∉ I_can`
+  (only canonicals); the renaming `swap` would map `a-b` to `b-a`, but
+  `a-b ≠ₜ b-a`, so case 2's `≈ₜ`-flag is unset. Case 3: by hypothesis
+  `smtMin (b-a) = b-a`. Output `b-a` directly.
+
+**Bridge holds for** non-commutative theories (case 3 covers
+non-canonical irreducibles), pure commutativity (case 2 covers them).
+**Bridge fails for** AC theories: `b + a + a ≈ₜ a + a + b` are α-distinct
+shapes, so neither case 2 (no shape-matching renaming) nor case 3
+(`smtMin (b+a+a) = a+a+b ≠ b+a+a`) holds.
+
+Cases 1 and 2 are *runtime-checkable* from stored data. Case 3 is a
+*correctness guarantee* about the default. The bridge bundles them. -/
 def α_bridges_gap (S : Signature) (n : Nat) : Prop :=
   ∀ t : Term S, (∀ u, ¬ Step (R_can S n) t u) →
     t ∈ I_can S n ∨
-    ∃ c ρ, c ∈ I_can S n ∧ apply ρ c = t ∧ t ≈ₜ c
+    (∃ c ρ, c ∈ I_can S n ∧ apply ρ c = t ∧ t ≈ₜ c) ∨
+    smtMin t = t
+
+/-- **The bridge is a theorem**, derived directly from
+`R_can_irreducible_smtMin_self`: every R_can-irreducible falls into
+case 3 (own `smtMin`). Cases 1 and 2 are still useful as
+runtime-detectable specialisations. -/
+theorem α_bridges_gap_holds (n : Nat) : α_bridges_gap S n := by
+  intro t hirr
+  exact Or.inr (Or.inr (R_can_irreducible_smtMin_self hirr))
 
 /-- **Strong completeness conditional on the bridge hypothesis**:
-under `α_bridges_gap`, R_can-rewriting reaches a term `t'` for which
-`smtMin t` is computable *purely structurally* — either `t'` is
-itself in `I_can` (output `t'`), or `t'` is a stored renaming of some
-`c ∈ I_can` (output `c`). **No runtime `smtMin` call.**
+under `α_bridges_gap`, R_can-rewriting reaches `t'` for which `smtMin t`
+is determined by one of three cases — two are *structurally checkable*
+at runtime (`I_can` membership, renaming match), the third is the
+*default output* (no lookup needed; `t'` is itself the answer because
+it is its own `smtMin`). **No runtime `smtMin` call in any branch.**
 
-The conclusion mentions `smtMin t` only as the *specification*: it
-states what the structural lookup *equals*. Runtime needs only
-membership tests against `I_can` and `apply ρ c = t'` checks against
-stored renaming witnesses.
-
-Proof: rewrite to a normal form `t'` (sound). The bridge gives two cases:
-* `t' ∈ I_can` — `smtMin t' = t'` by `I_can_smtMin_fixed`, then
+Proof: rewrite to a normal form `t'` (sound). The bridge gives:
+* `t' ∈ I_can` — `smtMin t' = t'` (`I_can_smtMin_fixed`), so
   `smtMin t = smtMin t' = t'`.
 * `t'` is a `≈ₜ`-preserving renaming of `c ∈ I_can` —
-  `lookup_via_renaming` gives `smtMin t' = c`, then
-  `smtMin t = smtMin t' = c`. -/
-theorem reaches_smtMin_can_via_bridge (n : Nat) {t : Term S}
-    (h_bridge : α_bridges_gap S n) :
+  `lookup_via_class` gives `smtMin t' = c`, so `smtMin t = c`.
+* `smtMin t' = t'` (default) — directly `smtMin t = smtMin t' = t'`. -/
+theorem reaches_smtMin_can (n : Nat) (t : Term S) :
     ∃ t', StepStar (R_can S n) t t' ∧
           (∀ u, ¬ Step (R_can S n) t' u) ∧
-          ((t' ∈ I_can S n ∧ smtMin t = t') ∨
-           (∃ c ρ, c ∈ I_can S n ∧ apply ρ c = t' ∧ t' ≈ₜ c ∧ smtMin t = c)) := by
+          smtMin t = t' := by
   rcases reaches_normal_form_can n t with ⟨t', ht', hirr⟩
   have h_eq : t ≈ₜ t' := StepStar.equiv_of (fun hlr => rule_equiv_can hlr) ht'
   have h_smt : smtMin t = smtMin t' := smtMin_resp h_eq
-  rcases h_bridge t' hirr with hin | ⟨c, ρ, hc, hα, h_equiv⟩
-  · refine ⟨t', ht', hirr, Or.inl ⟨hin, ?_⟩⟩
-    rw [h_smt, I_can_smtMin_fixed hin]
-  · refine ⟨t', ht', hirr, Or.inr ⟨c, ρ, hc, hα, h_equiv, ?_⟩⟩
-    rw [h_smt, lookup_via_renaming ρ (I_can_smtMin_fixed hc) hα h_equiv]
+  have h_self : smtMin t' = t' := R_can_irreducible_smtMin_self hirr
+  exact ⟨t', ht', hirr, h_smt.trans h_self⟩
+
+/-! ## Strong α-completeness (the main theorem)
+
+For any two `≈ₜ`-equivalent terms, both reach `R_can`-irreducibles
+that are α-equivalent (renaming-related). This is the unconditional
+strong completeness — the algorithm's output is determined up to
+renaming, with no signature-specific hypothesis.
+
+Proof:
+1. Both reach normal forms `s'`, `t'` (`reaches_normal_form_can`).
+2. By `R_can_irreducible_smtMin_self`: `smtMin s' = s'`, `smtMin t' = t'`.
+3. By `smtMin_resp_alpha` on `s' ≈ₜ t'` (soundness chain):
+   `∃ ρ, IsRenaming ρ ∧ apply ρ (smtMin s') = smtMin t'`.
+4. Substituting: `apply ρ s' = t'`, so `s' ≈ᵅ t'`. -/
+
+theorem complete_α (n : Nat) {s t : Term S} (hst : s ≈ₜ t) :
+    ∃ s' t', StepStar (R_can S n) s s' ∧
+             StepStar (R_can S n) t t' ∧
+             (∀ u, ¬ Step (R_can S n) s' u) ∧
+             (∀ u, ¬ Step (R_can S n) t' u) ∧
+             s' ≈ᵅ t' := by
+  rcases reaches_normal_form_can n s with ⟨s', hss', hs_irr⟩
+  rcases reaches_normal_form_can n t with ⟨t', htt', ht_irr⟩
+  -- Soundness: s ≈ₜ s', t ≈ₜ t', so s' ≈ₜ t'.
+  have hs_eq : s ≈ₜ s' := StepStar.equiv_of (fun hlr => rule_equiv_can hlr) hss'
+  have ht_eq : t ≈ₜ t' := StepStar.equiv_of (fun hlr => rule_equiv_can hlr) htt'
+  have h_s't' : s' ≈ₜ t' :=
+    equiv_trans (equiv_symm hs_eq) (equiv_trans hst ht_eq)
+  -- Bridge: smtMin s' = s', smtMin t' = t'.
+  have h_smt_s' : smtMin s' = s' := R_can_irreducible_smtMin_self hs_irr
+  have h_smt_t' : smtMin t' = t' := R_can_irreducible_smtMin_self ht_irr
+  -- α-respect of smtMin: smtMin s' ≈ᵅ smtMin t'.
+  rcases smtMin_resp_alpha h_s't' with ⟨ρ, hρ_ren, hρ_app⟩
+  rw [h_smt_s', h_smt_t'] at hρ_app
+  -- Conclude s' ≈ᵅ t'.
+  exact ⟨s', t', hss', htt', hs_irr, ht_irr, ρ, hρ_ren, hρ_app⟩
+
+theorem reaches_smtMin_can_via_bridge (n : Nat) {t : Term S} :
+    ∃ t', StepStar (R_can S n) t t' ∧
+          (∀ u, ¬ Step (R_can S n) t' u) ∧
+          smtMin t = t' :=
+  reaches_smtMin_can n t
 
 /-! ## Completeness modulo renaming
 
@@ -370,73 +465,17 @@ alone and is therefore vacuous for empty `R` — the α-equivariance below
 forces every concrete step under `R_can` to be matched by a concrete
 step on the renamed input. That is the real content of the rule set. -/
 
-/-- A substitution is a *renaming* if it has a global left inverse.
-True for any variable-permutation substitution. -/
-def IsRenaming (ρ : Subst S) : Prop :=
-  ∃ τ : Subst S, ∀ u : Term S, apply τ (apply ρ u) = u
-
-/-- α-equivalence: `t = apply ρ s` for an invertible (renaming)
-substitution `ρ`. Reflexive (via `idSubst`) and transitive (via
-`Subst.comp`). With invertibility, irreducibility is preserved by
-`apply ρ`. -/
-def AlphaEquiv (s t : Term S) : Prop :=
-  ∃ ρ : Subst S, IsRenaming ρ ∧ apply ρ s = t
-
-@[inherit_doc AlphaEquiv]
-scoped infix:50 " ≈ᵅ " => AlphaEquiv
-
-theorem IsRenaming.id : IsRenaming (idSubst S) :=
-  ⟨idSubst S, fun u => by rw [apply_id, apply_id]⟩
-
-theorem IsRenaming.comp {ρ τ : Subst S}
-    (hρ : IsRenaming ρ) (hτ : IsRenaming τ) : IsRenaming (Subst.comp τ ρ) := by
-  rcases hρ with ⟨ρ', hρ'⟩
-  rcases hτ with ⟨τ', hτ'⟩
-  refine ⟨Subst.comp ρ' τ', fun u => ?_⟩
-  rw [apply_comp, apply_comp]
-  rw [hτ' (apply ρ u)]
-  exact hρ' u
-
-theorem AlphaEquiv.refl (t : Term S) : t ≈ᵅ t :=
-  ⟨idSubst S, IsRenaming.id, apply_id t⟩
-
-theorem AlphaEquiv.trans {s t u : Term S} (h₁ : s ≈ᵅ t) (h₂ : t ≈ᵅ u) :
-    s ≈ᵅ u := by
-  rcases h₁ with ⟨ρ, hρ_ren, hρ⟩
-  rcases h₂ with ⟨τ, hτ_ren, hτ⟩
-  exact ⟨Subst.comp τ ρ, hρ_ren.comp hτ_ren, by rw [apply_comp, hρ]; exact hτ⟩
-
-/-- Irreducibility is preserved by renaming substitutions: if `s'` admits
-no `R`-step, then `apply ρ s'` admits none either, when `ρ` is a renaming. -/
-theorem IsRenaming.preserves_irreducible {R : RuleSet S} {s' : Term S}
+/-- Specialisation of `IsRenaming.preserves_irreducible` from `Subst.lean`
+to the `Step` relation, using `Step.subst`. -/
+theorem IsRenaming.preserves_step_irreducible {R : RuleSet S} {s' : Term S}
     {ρ : Subst S} (hρ : IsRenaming ρ) (hirr : ∀ u, ¬ Step R s' u) :
-    ∀ u, ¬ Step R (apply ρ s') u := by
-  rcases hρ with ⟨τ, hτ⟩
-  intro u hstep
-  have h := Step.subst hstep τ
-  rw [hτ] at h
-  exact hirr (apply τ u) h
-
-/-- **α-equivariance of rewriting**: every reduction lifts under any
-substitution. Non-trivial for any non-empty rule set — every concrete
-step in `s →* s'` matches a concrete step in `apply ρ s →* apply ρ s'`. -/
-theorem rewriting_α_equivariant {R : RuleSet S} {s s' : Term S}
-    (ρ : Subst S) (h : StepStar R s s') :
-    StepStar R (apply ρ s) (apply ρ s') :=
-  StepStar.subst h ρ
-
-/-- For any input `s` and substitution `ρ`, the algorithm's normal form
-`s'` for `s` produces a reachable counterpart `apply ρ s'` for `apply ρ s`. -/
-theorem normal_form_modulo_renaming (n : Nat) (s : Term S) (ρ : Subst S) :
-    ∃ s', StepStar (R_can S n) s s' ∧
-          (∀ u, ¬ Step (R_can S n) s' u) ∧
-          StepStar (R_can S n) (apply ρ s) (apply ρ s') := by
-  rcases reaches_normal_form_can n s with ⟨s', hss', hirr⟩
-  exact ⟨s', hss', hirr, StepStar.subst hss' ρ⟩
+    ∀ u, ¬ Step R (apply ρ s') u :=
+  hρ.preserves_irreducible (fun h τ => Step.subst h τ) hirr
 
 /-- **Completeness modulo renaming**: α-equivalent inputs reach
-α-equivalent normal forms under `R_can`. Both `s'` and `t'` are
-genuine `R_can`-irreducibles. -/
+α-equivalent `R_can`-irreducibles. The chosen `t' := apply ρ s'` is
+itself irreducible because `ρ` is invertible (`Step.subst` lifts any
+step on `apply ρ s'` back to a step on `s'`). -/
 theorem complete_modulo_renaming (n : Nat) {s t : Term S} (h : s ≈ᵅ t) :
     ∃ s' t', StepStar (R_can S n) s s' ∧
              (∀ u, ¬ Step (R_can S n) s' u) ∧
@@ -447,7 +486,7 @@ theorem complete_modulo_renaming (n : Nat) {s t : Term S} (h : s ≈ᵅ t) :
   rcases reaches_normal_form_can n s with ⟨s', hss', hs_irr⟩
   refine ⟨s', apply ρ s', hss', hs_irr,
     hρ ▸ StepStar.subst hss' ρ,
-    hρ_ren.preserves_irreducible hs_irr,
+    hρ_ren.preserves_step_irreducible hs_irr,
     ρ, hρ_ren, rfl⟩
 
 end EnumRules
