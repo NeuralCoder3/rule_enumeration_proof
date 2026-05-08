@@ -70,9 +70,7 @@ theorem equiv_of
   | root σ hlr => exact equiv_subst (hR hlr) σ
   | @ctx f as bs i _ hrest ih =>
       refine equiv_congr fun j => ?_
-      by_cases hj : j = i
-      · exact hj ▸ ih
-      · exact hrest j hj ▸ equiv_refl _
+      by_cases hj : j = i <;> [exact hj ▸ ih; exact hrest j hj ▸ equiv_refl _]
 
 /-- KBO-decrease: a step under a KBO-decreasing rule set is itself
 KBO-decreasing — pointwise on rule skeletons (`r ≺ₖ l`) lifts to every
@@ -152,15 +150,12 @@ theorem StepStar.ctx {R : RuleSet S} {f : S.σ}
       (Term.node f (fun j => if j = i then v else args j)) := by
   induction h with
   | refl =>
-      have heq : (fun j : Fin (S.arity f) => if j = i then args i else args j) = args := by
-        funext j; split_ifs with hj
-        · subst hj; rfl
-        · rfl
-      rw [heq]
+      have : (fun j : Fin (S.arity f) => if j = i then args i else args j) = args := by
+        funext j; split_ifs with hj <;> [exact hj ▸ rfl; rfl]
+      rw [this]
   | @tail _ b _ hstep ih =>
-      refine Relation.ReflTransGen.tail ih (Step.ctx (i := i) ?_ ?_)
-      · simpa using hstep
-      · intro j hj; simp [hj]
+      exact ih.tail <| Step.ctx (i := i) (by simpa using hstep)
+        (fun j hj => by simp [hj])
 
 /-- If a term simplifies, the reduced term is strictly KBO-smaller. -/
 theorem simplifiesWith.kbo_lt {R : RuleSet S}
@@ -182,7 +177,7 @@ theorem not_simplifiesWith_of_irreducible {R : RuleSet S} {t : Term S}
     induction htu with
     | refl => rfl
     | tail _ hstep ih => exact absurd (ih ▸ hstep) (h _)
-  rw [heq] at hsize
-  exact absurd hsize (Nat.lt_irrefl _)
+  subst heq
+  omega
 
 end EnumRules

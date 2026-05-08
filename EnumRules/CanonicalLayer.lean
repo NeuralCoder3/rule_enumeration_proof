@@ -44,6 +44,12 @@ namespace EnumRules
 
 variable {S : Signature}
 
+/-! ## Hint database
+
+`mem_R_can_props` and `I_can_smtMin_fixed` are tagged for `aesop`'s
+forward-reasoning so destructuring a rule or `I_can` membership is
+automatic. -/
+
 theorem R_can_subset {S : Signature} {m n : Nat} (h : m ≤ n) :
     R_can S m ⊆ R_can S n := by
   induction h with
@@ -56,16 +62,17 @@ theorem I_can_subset {S : Signature} {m n : Nat} (h : m ≤ n) :
   | refl => exact Finset.Subset.refl _
   | step _ ih => intro x hx; rw [I_can]; exact Finset.mem_union_left _ (ih hx)
 
+@[aesop safe forward]
 theorem mem_R_can_props {n : Nat} {l r : Term S} (h : (l, r) ∈ R_can S n) :
     r = smtMin l ∧ l ≠ r := by
   induction n with
   | zero => simp [R_can] at h
   | succ n ih =>
-      simp only [R_can, Finset.mem_union, Finset.mem_image, Finset.mem_filter] at h
-      rcases h with hPrev | ⟨l', ⟨_, _, _, hne⟩, hpair⟩
+      simp only [R_can, Finset.mem_union, Finset.mem_image, Finset.mem_filter,
+                 Prod.mk.injEq] at h
+      obtain hPrev | ⟨l', ⟨_, _, _, hne⟩, rfl, rfl⟩ := h
       · exact ih hPrev
-      · obtain ⟨rfl, rfl⟩ := Prod.mk.inj hpair
-        exact ⟨rfl, Ne.symm hne⟩
+      · exact ⟨rfl, Ne.symm hne⟩
 
 theorem mem_R_can_intro {n : Nat} {l : Term S}
     (hsize : Term.size l ≤ n)
@@ -84,13 +91,12 @@ theorem mem_R_can_intro {n : Nat} {l : Term S}
 
 theorem rule_equiv_can {n : Nat} {l r : Term S} (h : (l, r) ∈ R_can S n) :
     l ≈ₜ r := by
-  rcases mem_R_can_props h with ⟨hr, _⟩
-  subst hr; exact equiv_symm (smtMin_equiv l)
+  obtain ⟨rfl, _⟩ := mem_R_can_props h
+  exact equiv_symm (smtMin_equiv l)
 
 theorem rule_kbo_can {n : Nat} {l r : Term S} (h : (l, r) ∈ R_can S n) :
     r ≺ₖ l := by
-  rcases mem_R_can_props h with ⟨hr, hne⟩
-  subst hr
+  obtain ⟨rfl, hne⟩ := mem_R_can_props h
   exact smtMin_strict (Ne.symm hne)
 
 /-! ## Termination + reaching a normal form -/
@@ -135,15 +141,14 @@ common normal form, with no `class_lookup` step needed at all
 (see `complete_common_normal_form`). -/
 
 /-- `I_can` members are smtMin-fixed (built into the I_can filter). -/
+@[aesop safe forward]
 theorem I_can_smtMin_fixed {n : Nat} {c : Term S} (hc : c ∈ I_can S n) :
     smtMin c = c := by
   induction n with
-  | zero => rw [I_can] at hc; simp at hc
+  | zero => simp [I_can] at hc
   | succ n ih =>
       rw [I_can, Finset.mem_union] at hc
-      rcases hc with hPrev | hNew
-      · exact ih hPrev
-      · exact (Finset.mem_filter.1 hNew).2.2.2
+      aesop
 
 /-- `I_can` has **at most one** representative per `≈ₜ`-class
 among **ground** members: two ground `I_can` members in the same
@@ -199,14 +204,13 @@ theorem Step.preserves_ground {n : Nat} {s t : Term S}
     (h : Step (R_can S n) s t) (hg : Term.IsGround s) : Term.IsGround t := by
   induction h with
   | @root l r σ hmem =>
-      rcases mem_R_can_props hmem with ⟨hr, _⟩
-      subst hr
+      obtain ⟨rfl, _⟩ := mem_R_can_props hmem
       exact smtMin_apply_ground hg
   | @ctx f as bs i hstep hrest ih =>
       intro j
       by_cases hj : j = i
-      · rw [hj]; exact ih (hg i)
-      · rw [← hrest j hj]; exact hg j
+      · exact hj ▸ ih (hg i)
+      · exact (hrest j hj).symm ▸ hg j
 
 /-- `StepStar (R_can S n)` preserves groundness. -/
 theorem StepStar.preserves_ground {n : Nat} {s t : Term S}
@@ -230,20 +234,14 @@ private theorem ground_irreducible_in_I_can_at_size : ∀ (t : Term S),
       intro hg hirr
       set N := Term.size (Term.node f args)
       have hN_pos : 0 < N := Term.size_pos _
-      -- IH: each subterm is in I_can at smaller size, lifted to I_can S (N - 1).
-      have hargs_mem : ∀ i, args i ∈ I_can S (N - 1) := fun i => by
-        have hlt : Term.size (args i) < N := Term.size_arg_lt f args i
-        refine I_can_subset (by omega) (ih i (hg i) fun u hstep => ?_)
-        exact Step.irreducible_arg hirr u
-          (Step.lift (R_can_subset hlt.le) hstep)
-      -- Enumeration witness, plus the saturation conditions.
-      have hen : Term.node f args ∈
-          termsFromIrreducible S (I_can S (N - 1)) N :=
-        mem_termsFromIrreducible.mpr ⟨rfl, fun f' as' heq i => by
-          injection heq with hf ha
-          subst hf
-          obtain rfl : as' = args := eq_of_heq ha
-          exact hargs_mem i⟩
+      -- Subterms are in I_can S (N - 1), via IH and irreducibility-transfer.
+      have hargs_mem : ∀ i, args i ∈ I_can S (N - 1) := fun i =>
+        I_can_subset (by have := Term.size_arg_lt f args i; omega)
+          (ih i (hg i) fun u hstep => Step.irreducible_arg hirr u
+            (Step.lift (R_can_subset (Term.size_arg_lt f args i).le) hstep))
+      -- Enumeration witness + saturation conditions.
+      have hen : Term.node f args ∈ termsFromIrreducible S (I_can S (N - 1)) N :=
+        mem_termsFromIrreducible.mpr ⟨rfl, by aesop⟩
       have hcan : Canonical (Term.node f args) := canonical_of_ground hg
       have hnsp : ¬ simplifiesWith (R_can S (N - 1)) (Term.node f args) :=
         not_simplifiesWith_of_irreducible fun u hstep =>
@@ -254,8 +252,7 @@ private theorem ground_irreducible_in_I_can_at_size : ∀ (t : Term S),
       -- Assemble: t ∈ I_can S (N - 1 + 1) = I_can S N.
       have hsucc : N - 1 + 1 = N := by omega
       rw [show N = N - 1 + 1 from hsucc.symm, I_can]
-      refine Finset.mem_union_right _ (Finset.mem_filter.mpr ⟨?_, hcan, hnsp, hsmt⟩)
-      rwa [hsucc]
+      exact Finset.mem_union_right _ (Finset.mem_filter.mpr ⟨hsucc ▸ hen, hcan, hnsp, hsmt⟩)
 
 /-- **Enumeration completeness** for ground inputs: every R_can-irreducible
 ground term of size ≤ n is in `I_can S n`.
@@ -341,26 +338,18 @@ theorem complete_common_normal_form (n : Nat) {s t : Term S}
     (hs_size : Term.size s ≤ n) (ht_size : Term.size t ≤ n) (hst : s ≈ₜ t) :
     ∃ c, c ∈ I_can S n ∧
          ExtStepStar (S := S) n s c ∧ ExtStepStar (S := S) n t c := by
-  rcases reaches_normal_form_can n s with ⟨s', hss', hs_irr⟩
-  rcases reaches_normal_form_can n t with ⟨t', htt', ht_irr⟩
-  -- Groundness and size are preserved by R_can-rewriting.
-  have hs'_ground : Term.IsGround s' := StepStar.preserves_ground hss' hs_ground
-  have ht'_ground : Term.IsGround t' := StepStar.preserves_ground htt' ht_ground
-  have hs'_size : Term.size s' ≤ n := le_trans (StepStar.size_le hss') hs_size
-  have ht'_size : Term.size t' ≤ n := le_trans (StepStar.size_le htt') ht_size
-  -- Soundness: s ≈ₜ s', t ≈ₜ t', so s' ≈ₜ t'.
-  have hs_eq : s ≈ₜ s' := StepStar.equiv_of (fun hlr => rule_equiv_can hlr) hss'
-  have ht_eq : t ≈ₜ t' := StepStar.equiv_of (fun hlr => rule_equiv_can hlr) htt'
-  have hst' : s' ≈ₜ t' :=
-    equiv_trans (equiv_symm hs_eq) (equiv_trans hst ht_eq)
-  -- s' and t' are both in I_can (ground irreducible).
-  have hs'_mem : s' ∈ I_can S n := ground_irreducible_in_I_can hs'_size hs'_ground hs_irr
-  have ht'_mem : t' ∈ I_can S n := ground_irreducible_in_I_can ht'_size ht'_ground ht_irr
-  -- Uniqueness: s' = t' since both are ground I_can members in the same ≈ₜ-class.
-  have hs't' : s' = t' :=
-    I_can_unique_per_class hs'_ground ht'_ground hs'_mem ht'_mem hst'
-  refine ⟨s', hs'_mem, hss'.toExtStepStar, ?_⟩
-  rw [hs't']
-  exact htt'.toExtStepStar
+  obtain ⟨s', hss', hs_irr⟩ := reaches_normal_form_can n s
+  obtain ⟨t', htt', ht_irr⟩ := reaches_normal_form_can n t
+  have hs'_g := StepStar.preserves_ground hss' hs_ground
+  have ht'_g := StepStar.preserves_ground htt' ht_ground
+  have hs'_mem := ground_irreducible_in_I_can
+    (le_trans (StepStar.size_le hss') hs_size) hs'_g hs_irr
+  have ht'_mem := ground_irreducible_in_I_can
+    (le_trans (StepStar.size_le htt') ht_size) ht'_g ht_irr
+  have hs_eq := StepStar.equiv_of (fun h => rule_equiv_can h) hss'
+  have ht_eq := StepStar.equiv_of (fun h => rule_equiv_can h) htt'
+  have hs't' : s' = t' := I_can_unique_per_class hs'_g ht'_g hs'_mem ht'_mem
+    (equiv_trans (equiv_symm hs_eq) (equiv_trans hst ht_eq))
+  exact ⟨s', hs'_mem, hss'.toExtStepStar, hs't' ▸ htt'.toExtStepStar⟩
 
 end EnumRules

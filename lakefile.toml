@@ -9,6 +9,11 @@ name = "EnumRules"
 name = "enum_rules"
 root = "Main"
 
+# [[require]]
+# name = "smt"
+# scope = "ufmg-smite"
+# rev = "main"
+
 [[require]]
 name = "mathlib"
 scope = "leanprover-community"

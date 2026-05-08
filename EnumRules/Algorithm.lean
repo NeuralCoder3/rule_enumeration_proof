@@ -54,7 +54,7 @@ noncomputable def termsFromIrreducible (S : Signature)
 `termsFromIrreducible S subterms n` iff its size is `n` and *every*
 node-decomposition `t = Term.node f args` has `args i ∈ subterms`
 (vacuous for variables). -/
-theorem mem_termsFromIrreducible {subterms : Finset (Term S)} {n : Nat} {t : Term S} :
+@[simp] theorem mem_termsFromIrreducible {subterms : Finset (Term S)} {n : Nat} {t : Term S} :
     t ∈ termsFromIrreducible S subterms n ↔
       Term.size t = n ∧
       ∀ (f : S.σ) (args : Fin (S.arity f) → Term S),
@@ -62,17 +62,7 @@ theorem mem_termsFromIrreducible {subterms : Finset (Term S)} {n : Nat} {t : Ter
   simp only [termsFromIrreducible, Finset.mem_filter, Finset.mem_union,
              Finset.mem_image, Finset.mem_biUnion, Fintype.mem_piFinset,
              Finset.mem_univ, true_and]
-  refine ⟨fun ⟨h, hsize⟩ => ⟨hsize, fun f' as' heq i => ?_⟩,
-          fun ⟨hsize, h⟩ => ⟨?_, hsize⟩⟩
-  · rcases h with ⟨v, hv⟩ | ⟨f, as, hin, hnode⟩
-    · cases heq.trans hv.symm
-    · injection heq.trans hnode.symm with hf has
-      subst hf
-      obtain rfl : as' = as := eq_of_heq has
-      exact hin i
-  · cases t with
-    | var v => exact .inl ⟨v, rfl⟩
-    | node f as => exact .inr ⟨f, as, fun i => h f as rfl i, rfl⟩
+  cases t <;> aesop
 
 end EnumRules
 
