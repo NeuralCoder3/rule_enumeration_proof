@@ -8,13 +8,15 @@ import EnumRules.Signature
 # Terms with explicit variables
 
 Terms are built from:
-* `var v` for `v : S.V` — a *variable*, may be substituted.
+* `var v` for `v : S.V` — a *variable* (algorithm-internal placeholder
+  used in rule schemas; substituted by `apply σ`).
 * `node f args` for `f : S.σ` — a *function application* with the
   right number of argument terms.
 
-The two constructors are syntactically distinct, so the proof can
-distinguish "rule-creation candidates" (which may have variables) from
-"ground-evaluation targets" (no variables).
+User-level variables in input formulas are 0-ary symbols of `S.σ`,
+*not* `Term.var v`. So runtime inputs are S.V-ground (`IsGround`).
+The `Term.var` constructor exists to write rule schemas that
+generalise across substitutions.
 -/
 
 inductive Term (S : Signature) : Type where

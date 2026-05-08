@@ -13,18 +13,20 @@ Defines `Step R` (one-step rewrite) and its reflexive-transitive
 closure `StepStar R`. `Step.root σ` fires a rule `(l, r) ∈ R` under
 substitution `σ`; `Step.ctx` closes under one-hole contexts.
 
-Three properties of `Step` carry the proof:
-* `equiv_of` — rewriting preserves `≈ₜ` (uses `equiv_subst`,
+Properties of `Step` plumbed into the algorithm correctness proof:
+* `equiv_of` — rewriting preserves `≈ₜ` (via `equiv_subst`,
   `equiv_congr`, `equiv_refl`).
-* `kbo_of` — rewriting strictly decreases `≺ₖ` (uses `kbo_subst`,
+* `kbo_of` — rewriting strictly decreases `≺ₖ` (via `kbo_subst`,
   `kbo_mono_ctx`).
-* `subst` — rewriting commutes with `apply ρ` (uses `apply_comp`,
-  `apply_node`). Foundation for α-equivariance in CanonicalLayer.
+* `subst` — rewriting commutes with `apply ρ` (via `apply_comp`,
+  `apply_node`). Used in `CanonicalLayer.complete_modulo_renaming`.
+* `irreducible_arg` — irreducibility passes to subterms (contrapositive
+  of `Step.ctx`). Used in `ground_irreducible_in_I_can`.
+* `root_id` — fire a rule "as written" (no further substitution).
+  Built from `Step.root Subst.id` plus `apply_id`.
 
-`Step.root_id` is the ground-rule firing form, used wherever a rule
-fires "as written" (no further substitution) — concretely,
-`Correctness.lean`'s `reaches_smtMin` final step. Built from
-`Step.root (idSubst S)` plus `apply_id`.
+`not_simplifiesWith_of_irreducible` — irreducibility implies no
+size-shrinking `StepStar` path.
 
 ## Axioms
 None. Everything in this file is a theorem from the axioms in

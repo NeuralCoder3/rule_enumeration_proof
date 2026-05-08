@@ -3,42 +3,52 @@ import EnumRules.Algorithm
 open scoped Classical
 
 /-
-# Canonical-filtered algorithm + completeness modulo `≈ₜ`
+# Canonical-filtered algorithm + completeness theorems
 
 ## Role
 Defines `R_can S n` and `I_can S n` (canonical-filtered rule and
-irreducible sets), proves the universal completeness theorem:
+irreducible sets) and proves three completeness results:
 
-```
-complete_can :
-  s ≈ₜ t →
-  ∃ s' t', s →* s' ∧ t →* t' ∧ s' ≈ₜ t' ∧ smtMin s' = smtMin t'
-```
+* `complete_can` — for *any* signature, `≈ₜ`-equivalent inputs reach
+  `R_can`-irreducible normal forms that are themselves `≈ₜ`-equivalent
+  (confluence up to `≈ₜ`).
+* `complete_common_normal_form` — for *S.V-ground* `≈ₜ`-equivalent
+  inputs, the algorithm reaches the **same** representative
+  `c ∈ I_can S n` (uniqueness via `I_can_unique_per_class`, which
+  uses `smtMin_resp` on ground inputs). The main runtime correctness
+  statement.
+* `complete_modulo_renaming` — for α-equivalent inputs, the algorithm
+  produces α-equivalent normal forms (uses `Step.subst` for
+  α-equivariance of rewriting).
 
-For any signature, `≈ₜ`-equivalent inputs reach `R_can`-irreducibles
-that are themselves `≈ₜ`-equivalent. `smtMin` agreement (Phase 2 of
-the algorithm) follows from `smtMin_resp`.
+The `Canonical` filter is a placeholder for any per-class
+representative-picking predicate; the proofs only require ground
+terms to satisfy it (`canonical_of_ground`).
 
 ## Axioms (3)
-* `Canonical : Term S → Prop` opaque, no behavioural axioms.
-  The `Canonical` filter doesn't appear in `complete_can` (universal
-  completeness). For the *common normal form* result we restrict to
-  S.V-ground inputs (the realistic runtime case — user-level
-  "variables" are 0-ary symbols of `S.σ`, not `Term.var v`), so the
-  canonical filter is vacuous on inputs.
+* `Canonical : Term S → Prop` opaque, no behavioural axioms by itself.
 * `canonical_of_ground` — every ground term is canonical. Vacuously
-  true: the canonical filter constrains the ordering of S.V variables,
-  but ground terms have none.
+  true: `Canonical` constrains how S.V variables appear, but ground
+  terms have none.
 * `smtMin_apply_ground` — `smtMin` doesn't introduce new variables:
-  if `apply σ l` is ground, so is `apply σ (smtMin l)`. Drives
+  if `apply σ l` is ground, so is `apply σ (smtMin l)`. Used to derive
   ground-preservation of `Step (R_can S n)`.
 
-## Optional non-AC extension
-For signatures where `≈ₜ`-classes coincide with α-classes
-(non-commutative, pure-commutative), `complete_modulo_renaming`
-strengthens the conclusion to α-equivalent normal forms when the
-**inputs** are α-equivalent. It is *not* available for arbitrary
-`≈ₜ`-equivalent inputs (that would require AC-failing axioms).
+## Theorems-from-axioms (previously axioms)
+* `ground_irreducible_in_I_can` — every R_can-irreducible ground term
+  of size ≤ n is in `I_can S n`. Proved by structural induction
+  (subterms enter `I_can` at smaller sizes; `smtMin t = t` follows by
+  contradiction with `mem_R_can_intro` + `Step.root_id`).
+* `Step.preserves_ground` / `StepStar.preserves_ground` —
+  ground-preservation of rewriting (uses `smtMin_apply_ground`).
+
+## Runtime convention
+At runtime, inputs are S.V-ground: user-level "variables" in input
+formulas are 0-ary symbols of `S.σ`, *not* `Term.var v`. `Term.var`
+exists only for algorithm-internal rule schemas; substitution at
+runtime instantiates these against ground subterms. With this
+convention, `Canonical` is vacuous on inputs and the common-normal-form
+theorem reaches *exact* equality (no α-quotient).
 -/
 
 namespace EnumRules
@@ -149,30 +159,30 @@ theorem saturated_can {n : Nat} {l : Term S} (hsize : Term.size l ≤ n)
     Step (R_can S n) l (smtMin l) :=
   Step.root_id (mem_R_can_intro hsize hen hcan hnsp hne)
 
-/-! ## Universal completeness (any signature, including AC)
+/-! ## Universal completeness (any signature)
 
-The algorithm produces:
-1. **Phase 1**: a normal form `s'` with `s ≈ₜ s'` (rewriting alone).
-2. **Phase 2**: `smtMin s'`, which by `smtMin_resp` equals `smtMin s` —
-   a canonical representative of the `≈ₜ`-class.
+For any `s ≈ₜ t`, Phase 1 (rewriting) produces irreducible normal
+forms `s', t'` that are themselves `≈ₜ`-equivalent: rewriting is
+sound for `≈ₜ`, so `s' ≈ₜ s ≈ₜ t ≈ₜ t'`.
 
-For `s ≈ₜ t`, Phase 1 produces normal forms `s', t'` with
-`s' ≈ₜ s ≈ₜ t ≈ₜ t'`, hence `s' ≈ₜ t'`. Phase 2 (lookup) uses
-`smtMin_resp` to compare: `smtMin s' = smtMin t'`. -/
+This is confluence up to `≈ₜ`. The stronger Phase-2 conclusion
+`smtMin s' = smtMin t'` would need `kbo_total` on `smtMin s'`,
+`smtMin t'`, which our axiom only provides on ground terms — so
+that strengthening lives in `complete_common_normal_form` (ground
+inputs reach the *same* `I_can` representative). -/
 theorem complete_can (n : Nat) {s t : Term S} (hst : s ≈ₜ t) :
     ∃ s' t',
       StepStar (R_can S n) s s' ∧ StepStar (R_can S n) t t' ∧
       (∀ u, ¬ Step (R_can S n) s' u) ∧ (∀ u, ¬ Step (R_can S n) t' u) ∧
       s ≈ₜ s' ∧ t ≈ₜ t' ∧
-      s' ≈ₜ t' ∧
-      smtMin s' = smtMin t' := by
+      s' ≈ₜ t' := by
   rcases reaches_normal_form_can n s with ⟨s', hs', hs_irr⟩
   rcases reaches_normal_form_can n t with ⟨t', ht', ht_irr⟩
   have hs_eq : s ≈ₜ s' := StepStar.equiv_of (fun hlr => rule_equiv_can hlr) hs'
   have ht_eq : t ≈ₜ t' := StepStar.equiv_of (fun hlr => rule_equiv_can hlr) ht'
   have hst' : s' ≈ₜ t' :=
     equiv_trans (equiv_symm hs_eq) (equiv_trans hst ht_eq)
-  exact ⟨s', t', hs', ht', hs_irr, ht_irr, hs_eq, ht_eq, hst', smtMin_resp hst'⟩
+  exact ⟨s', t', hs', ht', hs_irr, ht_irr, hs_eq, ht_eq, hst'⟩
 
 /-! ## Optional non-AC extension: α-equivalent inputs
 
@@ -204,26 +214,30 @@ theorem complete_modulo_renaming (n : Nat) {s t : Term S} (h : s ≈ᵅ t) :
 
 /-! ## Extended rewriting and common normal form
 
-The algorithm's operational steps are exactly three — none invokes
-`smtMin` at runtime; the SMT work is all done at enumeration time when
-constructing the rule set `R_can` and the irreducible groups stored
-inside `I_can`:
+The algorithm's operational steps are two — neither invokes `smtMin`
+at runtime; the SMT work is all done at enumeration time when
+constructing the rule set `R_can` and storing irreducibles in `I_can`:
 
-1. **Rule rewriting** (`Step R_can`) — fire a synthesised rule under
-   any substitution. Phase 1.
+1. **Rule rewriting** (`ExtStep.rule`, wrapping `Step (R_can S n)`) —
+   fire a synthesised rule under any substitution. This is Phase 1.
 2. **Equivalence-class step** (`ExtStep.class_lookup`) — replace `t`
-   with a stored canonical class member `c ∈ I_can` such that `t ≈ₜ c`.
-   This is the *only* equivalence-class operation the algorithm does
-   at runtime. The `c ≈ₜ t` decision is the SMT check made at
+   with a stored canonical class member `c ∈ I_can` such that `t ≈ₜ c`,
+   when `t` itself is a substitution-instance of some `m ∈ I_can`
+   (anchoring source and destination in the algorithm's stored
+   irreducibles). The `c ≈ₜ t` decision is an SMT check made at
    enumeration time and stored in the group structure.
-3. **Renaming** (`ExtStep.rename_eq`) — apply a `≈ₜ`-preserving renaming
-   substitution.
 
-Every step preserves `≈ₜ` (the `class_lookup` step lands in the same
-class by hypothesis; rules and renamings are sound by construction).
+Both steps preserve `≈ₜ` (rules by `rule_equiv_can`; class lookup
+by hypothesis). A `smtMin` runtime step is **not** included —
+`smtMin t` is recovered as the *unique* representative `c ∈ I_can`
+with `c ≈ₜ t`, found via `class_lookup`.
 
-A `smtMin`-step is **not** included — `smtMin t` is recovered as the
-*unique* representative `c ∈ I_can` with `c ≈ₜ t`, found via `class_lookup`. -/
+For *ground* inputs, the source `t` of a `class_lookup` step is itself
+the irreducible normal form `s'`, and `s' ∈ I_can S n` directly (by
+`ground_irreducible_in_I_can`). Then by `I_can_unique_per_class`, two
+ground inputs `s ≈ₜ t` reach the **same** `c = s' = t' ∈ I_can` — the
+common normal form, with no `class_lookup` step needed at all
+(see `complete_common_normal_form`). -/
 
 /-- `I_can` members are smtMin-fixed (built into the I_can filter). -/
 theorem I_can_smtMin_fixed {n : Nat} {c : Term S} (hc : c ∈ I_can S n) :
@@ -236,13 +250,19 @@ theorem I_can_smtMin_fixed {n : Nat} {c : Term S} (hc : c ∈ I_can S n) :
       · exact ih hPrev
       · exact (Finset.mem_filter.1 hNew).2.2.2
 
-/-- `I_can` has **at most one** representative per `≈ₜ`-class:
-two `I_can` members in the same class are equal, because each is its
-own `smtMin` and `smtMin` respects `≈ₜ`. -/
+/-- `I_can` has **at most one** representative per `≈ₜ`-class
+among **ground** members: two ground `I_can` members in the same
+`≈ₜ`-class are equal, because each is its own `smtMin` and `smtMin`
+respects `≈ₜ` on ground inputs. -/
 theorem I_can_unique_per_class {n : Nat} {c d : Term S}
+    (hc_ground : Term.IsGround c) (hd_ground : Term.IsGround d)
     (hc : c ∈ I_can S n) (hd : d ∈ I_can S n) (h : c ≈ₜ d) : c = d := by
-  have h_eq : smtMin c = smtMin d := smtMin_resp h
-  rw [I_can_smtMin_fixed hc, I_can_smtMin_fixed hd] at h_eq
+  have hsm_c : smtMin c = c := I_can_smtMin_fixed hc
+  have hsm_d : smtMin d = d := I_can_smtMin_fixed hd
+  have hg_smc : Term.IsGround (smtMin c) := hsm_c.symm ▸ hc_ground
+  have hg_smd : Term.IsGround (smtMin d) := hsm_d.symm ▸ hd_ground
+  have h_eq : smtMin c = smtMin d := smtMin_resp hg_smc hg_smd h
+  rw [hsm_c, hsm_d] at h_eq
   exact h_eq
 
 /-! ## Ground-restricted completeness
@@ -478,8 +498,9 @@ theorem complete_common_normal_form (n : Nat) {s t : Term S}
   -- s' and t' are both in I_can (ground irreducible).
   have hs'_mem : s' ∈ I_can S n := ground_irreducible_in_I_can hs'_size hs'_ground hs_irr
   have ht'_mem : t' ∈ I_can S n := ground_irreducible_in_I_can ht'_size ht'_ground ht_irr
-  -- Uniqueness: s' = t' since both are I_can members in the same ≈ₜ-class.
-  have hs't' : s' = t' := I_can_unique_per_class hs'_mem ht'_mem hst'
+  -- Uniqueness: s' = t' since both are ground I_can members in the same ≈ₜ-class.
+  have hs't' : s' = t' :=
+    I_can_unique_per_class hs'_ground ht'_ground hs'_mem ht'_mem hst'
   refine ⟨s', hs'_mem, hss'.toExtStepStar, ?_⟩
   rw [hs't']
   exact htt'.toExtStepStar

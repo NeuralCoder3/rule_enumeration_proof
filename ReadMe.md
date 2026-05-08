@@ -1,34 +1,41 @@
 # EnumRules
 
-A Lean development of correctness for an enumeration-based normalization
-algorithm modulo a semantic equivalence `≈ₜ` decided by an SMT oracle,
-with explicit variable handling.
+A Lean development of correctness for an enumeration-based normalisation
+algorithm modulo a semantic equivalence `≈ₜ` decided by an SMT oracle.
 
 ## Setting
 
-### Signature with explicit variables
+### Signature
 
 ```
 Signature = (σ, V, arity)
   σ      : Type of function symbols
-  V      : Type of variables (separate from σ)
-  arity  : σ → ℕ (only function symbols have arities; variables are
-                  treated uniformly as 0-ary "placeholders")
+  V      : Type of S.V variables (algorithm-internal placeholders)
+  arity  : σ → ℕ
 ```
 
 Both `σ` and `V` have decidable equality.
+
+**Two roles for "variables".** User-level variables in input formulas
+are modelled as 0-ary symbols of `S.σ` (constants). The separate type
+`S.V`, with its `Term.var` constructor, exists only for the algorithm's
+*internal rule schemas*: when the algorithm synthesises a rule like
+`f(v₀, v₀) → v₀`, the `v₀` is a `Term.var` and gets instantiated at
+runtime against actual subterms via substitution.
 
 ### Terms
 
 ```
 Term S ::=
-  | var (v : S.V)                                  -- a variable
-  | node (f : S.σ) (args : Fin (arity f) → Term S) -- a function application
+  | var (v : S.V)                                  -- schema placeholder
+  | node (f : S.σ) (args : Fin (arity f) → Term S) -- function application
 ```
 
-A *ground term* contains no `var` constructors.
+A *ground* term (`Term.IsGround`) contains no `var` constructors.
+**Runtime inputs are ground**: they live in the `Term.node`-only
+sublanguage of `Term S`.
 
-### Substitutions (concrete, not opaque)
+### Substitutions
 
 ```
 Subst S := S.V → Term S
@@ -37,224 +44,195 @@ apply (σ : Subst) : Term S → Term S
   | var v        ↦ σ v
   | node f args  ↦ node f (apply σ ∘ args)
 
-Subst.id : Subst         -- σ.id v = var v
-Subst.comp : Subst → Subst → Subst
-  (Subst.comp σ τ) v ↦ apply σ (τ v)
+Subst.id (v) ↦ var v
+Subst.comp ρ σ (v) ↦ apply ρ (σ v)
 ```
 
-Substitution is defined directly. The "axioms" `apply_id`, `apply_comp`,
-`apply_node` are now **theorems** by structural induction.
+`apply_id`, `apply_comp`, `apply_node`, and `apply_ground` are
+**theorems** by structural induction. The only behavioural axioms about
+substitution are how it interacts with `≈ₜ` and `≺ₖ` (`equiv_subst`,
+`kbo_subst`).
 
 ### Equivalence and order
 
 * `≈ₜ` (semantic equivalence): SMT-decided. Equivalence relation,
-  congruence, closed under substitution: `s ≈ₜ t → s·σ ≈ₜ t·σ`.
+  congruence, closed under substitution.
 * `≺ₖ` (reduction order, e.g. KBO): well-founded, transitive,
-  monotone under one-hole contexts, **substitution-monotone**:
-  `s ≺ₖ t → s·σ ≺ₖ t·σ`. KBO is **partial** in general — distinct
-  variables are KBO-incomparable, so e.g. `var a` and `var b` are
-  incomparable; `var a + var b` and `var b + var a` are incomparable.
-  KBO is **total on ground terms** (no variables).
+  monotone under one-hole contexts, **substitution-monotone**
+  (`s ≺ₖ t → apply σ s ≺ₖ apply σ t`), and **total on ground terms**
+  (`kbo_total` requires `IsGround`).
+
+Classical KBO is partial on terms with variables — distinct
+`Term.var` are KBO-incomparable — so totality is sound only on
+ground terms. The framework restricts `kbo_total` to ground inputs
+explicitly. Where the algorithm needs a property of `smtMin` that
+would have followed from uniform totality (specifically
+`smtMin t = t ∨ smtMin t ≺ₖ t`), this is axiomatised separately as
+`smtMin_le`, sound for any well-behaved oracle (return either the
+input or a strictly KBO-smaller equivalent).
 
 ### SMT oracle
 
-`smtMin t` returns a `≺ₖ`-minimal element of `t`'s `≈ₜ`-class.
-* `smtMin t ≈ₜ t`.
-* `smtMin_min`: no `≈ₜ`-equivalent of `t` is `≺ₖ`-strictly-smaller than
-  `smtMin t`.
-* When `t` is its own minimum (no comparable smaller class member),
-  `smtMin t = t` (the oracle returns the input).
-
-### Why variables matter for rules
-
-A rule `(l, r)` is added to `R` only when `r ≺ₖ l` *as terms with
-variables*. By substitution-monotonicity, this gives `r·σ ≺ₖ l·σ` for
-**every** `σ` — so the rule is sound under any instantiation.
-
-When `≺ₖ` is **incomparable** between `l` and a candidate `r` (variables
-prevent ordering), no rule can be added. Example: for commutative `+`,
-`l = var a + var b` and `r = var b + var a` are KBO-incomparable
-(distinct variables), so even though `l ≈ₜ r`, no rule with this LHS/RHS
-gets added. `l` is declared **irreducible** and placed in its `≈ₜ`-group.
-
-This is the key reason variables must be modelled explicitly: the
-incomparability of variable-terms is what protects rule soundness from
-α-renaming pitfalls.
+`smtMin t` returns a `≺ₖ`-minimum element of `t`'s `≈ₜ`-class.
+* `smtMin t ≈ₜ t` (axiom `smtMin_equiv`).
+* `smtMin_min`: no `≈ₜ`-equivalent of `t` is `≺ₖ`-strictly-smaller
+  than `smtMin t`.
+* `smtMin_le` (axiom): `smtMin t = t ∨ smtMin t ≺ₖ t`. Sound for any
+  oracle that returns either the input or a strictly smaller
+  KBO-comparable equivalent.
+* `smtMin_resp` (theorem, from `smtMin_min` + ground `kbo_total`):
+  for ground `s ≈ₜ t`, `smtMin s = smtMin t`. Used by
+  `I_can_unique_per_class` for the common-normal-form theorem.
 
 ## Algorithm
 
-Maintain by ascending size `n = 1, 2, …, N`:
-* a **rule set** `R`,
-* irreducibles partitioned into **`≈ₜ`-groups** `G = { G_1, G_2, … }`.
+Mutually recursive on size `n = 1, 2, …`:
+
+* **rule set** `R_can S n` (and uncanonicalised `R S n`),
+* **irreducible set** `I_can S n` (and uncanonicalised `I S n`).
 
 ```
-for n = 1, 2, …, N:
-  enumerate canonical terms l of size n whose strict subterms come from
-    ⋃ G ∪ V (canonical irreducibles + variables);
+for n = 1, 2, …:
+  enumerate canonical terms l of size n whose strict subterms
+    come from I_can S (n-1);
 
-  for each enumerated l:
-    if l simplifies via R (rewrite reaches a strictly smaller term):
+  for each enumerated l with Canonical l:
+    if l simplifies via R_can S (n-1):
       skip                     -- already covered
 
+    else if smtMin l ≠ l:
+      add (l, smtMin l) to R_can S n   -- rule, l reducible
+
     else:
-      r ← smtMin l              -- SMT call at enumeration time
-      if r ≺ₖ l (KBO-comparable, strictly smaller):
-        add (l, r) to R         -- substitution-monotone rule
-      else:                     -- r = l (incomparable case)
-        if ∃ G_i and m ∈ G_i with l ≈ₜ m  (SMT check):
-          add l to G_i
-        else:
-          create a new group {l} in G
+      add l to I_can S n               -- irreducible representative
 ```
 
-### Normalization (runtime)
+`smtMin` is queried at *enumeration time*. Rules synthesised this way
+are KBO-decreasing on the schema level (`r ≺ₖ l`); by `kbo_subst`,
+every instance `apply σ r ≺ₖ apply σ l` — substitution-stable rule
+decrease, hence one-step rewriting is `≺ₖ`-decreasing under any
+substitution.
+
+### Normalisation (runtime)
+
+Inputs are S.V-ground. Two operational steps (`ExtStep`):
+
+1. **Rule rewriting** (`Step (R_can S n)`) — fire a synthesised rule
+   `(l, r) ∈ R_can` under any substitution σ matching `l` against a
+   subterm. Phase 1; reaches an `R_can`-irreducible normal form.
+2. **Class lookup** (`ExtStep.class_lookup`) — replace the irreducible
+   normal form `t'` with its stored class representative `c ∈ I_can`
+   (decided at enumeration time). For ground inputs this is *trivial*:
+   `t' ∈ I_can` directly (see `complete_common_normal_form`).
+
+No `smtMin` call happens at runtime — the SMT work is all paid at
+enumeration time.
+
+## Completeness theorems
+
+Three results in `CanonicalLayer.lean`:
+
+### `complete_can` — for any signature
 
 ```
-normalize(t):
-  -- Phase 1: rewrite
-  apply R-rewrites (rule l→r fires on subterm u when u = l·σ for some σ)
-  until no rule matches; let t' be the result.
-
-  -- Phase 2: lookup
-  find the group G_i and m ∈ G_i and substitution σ
-    with m·σ ≈ₜ t'              (lookup against stored ≈ₜ-data)
-  return the smallest such m·σ under ≺ₖ.
+s ≈ₜ t →
+  ∃ s' t', s →* s' ∧ t →* t' ∧ s' ≈ₜ t'
 ```
 
-Phase 1 terminates by `≺ₖ`-decrease (each step reduces under
-substitution-monotone KBO).
+Confluence up to `≈ₜ`: equivalent inputs reach equivalent
+`R_can`-irreducible normal forms. The Phase-2 strengthening
+(`smtMin s' = smtMin t'`) requires totality of KBO on `smtMin s'` /
+`smtMin t'`, which `kbo_total` only provides on ground terms — so
+that strengthening lives in `complete_common_normal_form`.
 
-Phase 2 picks the `≺ₖ`-minimum among `{m·σ : m ∈ G_i, m·σ ≈ₜ t'}`.
-For **ground** `t'` this set's minimum is unique (KBO total on ground).
-For non-ground `t'`, multiple minima may be incomparable; the algorithm
-returns one — concretely, the smallest after instantiating variables.
-
-## Strong completeness theorem
+### `complete_common_normal_form` — for ground inputs (main runtime theorem)
 
 ```
-∀ s t, s ≈ₜ t →
-  ∃ output,
-    normalize(s) ≡ output ∧ normalize(t) ≡ output    (modulo renaming)
+IsGround s ∧ IsGround t ∧ size s ≤ n ∧ size t ≤ n ∧ s ≈ₜ t →
+  ∃ c, c ∈ I_can S n ∧ ExtStepStar n s c ∧ ExtStepStar n t c
 ```
 
-Where `≡ output` means `normalize` reaches `output` exactly when
-ground, or up to a renaming on the variables when non-ground.
+For ground `≈ₜ`-equivalent inputs of bounded size, the algorithm
+reaches the **same** stored representative `c ∈ I_can S n` from both —
+no quotient or up-to-renaming. Proof: rewriting preserves groundness
+(`Step.preserves_ground`), `s'` and `t'` are both ground irreducibles
+hence in `I_can` (`ground_irreducible_in_I_can`), and
+`I_can_unique_per_class` forces `s' = t'`.
 
-### Why this is achievable
+### `complete_modulo_renaming` — for α-equivalent inputs
 
-* Phase 1 (rewriting) preserves `≈ₜ`. So `s →* s'` and `t →* t'` with
-  `s' ≈ₜ s ≈ₜ t ≈ₜ t'`, hence `s' ≈ₜ t'`.
-* Phase 2 picks the `≺ₖ`-minimum in the `≈ₜ`-class. By
-  `smtMin_min`, this minimum is **unique up to KBO-incomparability**.
-  KBO-incomparable terms are exactly those that differ only by variable
-  renaming (under standard KBO without variable precedence). So the
-  minimum is unique up to renaming.
+```
+s ≈ᵅ t → ∃ s' t', s →* s' ∧ t →* t' ∧ s' ≈ᵅ t'
+```
 
-### Why variables are essential
+α-equivalent rewrite paths via `Step.subst` (substitution-stability of
+rewriting). Independent of `≈ₜ` semantics; uses no axioms beyond
+`Step.subst`.
 
-If we modeled variables as 0-ary constants (pre-refactor): `a + b` and
-`b + a` for two distinct constants `a, b` would be **KBO-comparable**
-(`a < b` in symbol precedence), so `smtMin` would pick one strictly,
-forcing a rule `(b + a, a + b)`. This is wrong — these are constants,
-not variables, and they have distinct semantic interpretations.
+## Axioms
 
-With **variables**: `var a + var b` and `var b + var a` are
-KBO-incomparable (no precedence between distinct variables). No rule
-is created. Both are stored as irreducibles, possibly in the same
-`≈ₜ`-group (if `+` is commutative, by SMT check).
+```
+Equiv.lean       (4)  equiv_refl, equiv_symm, equiv_trans, equiv_congr
+Kbo.lean         (5)  kbo_wf, kbo_trans, kbo_total (ground only),
+                      kbo_mono_ctx, kbo_size_le
+Subst.lean       (2)  kbo_subst, equiv_subst
+Oracle.lean      (3)  smtMin_equiv, smtMin_min, smtMin_le
+Algorithm.lean   (1)  mem_termsFromIrreducible (specifies enumeration)
+CanonicalLayer   (3)  Canonical (opaque), canonical_of_ground,
+                      smtMin_apply_ground
+```
 
-This is exactly the right behaviour: rules over variable-terms must be
-substitution-stable, and the only way to guarantee that for partial KBO
-is to require strict comparability.
+`kbo_total` carries an `IsGround` hypothesis so it stays sound on
+variable-bearing terms (where classical KBO is partial). `smtMin_le`
+is now an axiom (was a theorem from uniform `kbo_total`); it holds
+for any well-behaved oracle.
 
-## Assumptions / axioms
+`canonical_of_ground` and `smtMin_apply_ground` exist purely to
+support the ground-restricted theorems and `Step.preserves_ground`.
+The universal `complete_can` doesn't depend on either.
 
-| Axiom | Sound for |
-|---|---|
-| `equiv_refl/symm/trans/congr/subst` | Any signature |
-| `kbo_wf, kbo_trans, kbo_mono_ctx` | Any signature |
-| `kbo_total_ground` (only on ground terms) | Any signature with KBO |
-| `kbo_subst` (substitution-monotone) | Any signature with substitution-monotone reduction order |
-| `kbo_size_le` (with weight 1) | KBO with positive weights |
-| `smtMin_equiv, smtMin_min` | Any signature with SMT oracle |
-| `smtMin_resp_ground` (for ground terms) | Any signature; `s ≈ₜ t (ground) → smtMin s = smtMin t` |
-| `mem_termsFromIrreducible` | Specifies enumeration |
-| `Canonical : Term S → Prop` (opaque) | Any predicate |
+### What's a theorem (was previously an axiom)
 
-Substitutions are now **concrete** — `apply_id`, `apply_comp`,
-`apply_node` are theorems.
-
-`kbo_total_ground` is the appropriate weakening of the previous
-`kbo_total`: KBO is total on **ground** terms but partial on terms with
-variables. This is the standard KBO behaviour.
+* `apply_id`, `apply_comp`, `apply_node` — structural recursion on `apply`.
+* `smtMin_resp` — uniqueness of class minimum on **ground** inputs
+  (from `smtMin_min` + ground `kbo_total`).
+* `ground_irreducible_in_I_can` — by structural induction on `t`.
+* `Step.preserves_ground` / `StepStar.preserves_ground` — induction on
+  `Step` using `smtMin_apply_ground` for the root case.
 
 ## Invariants
 
-* **Rules are KBO-decreasing on the term level** (with variables):
-  every `(l, r) ∈ R` satisfies `r ≺ₖ l`. By `kbo_subst`,
-  `r·σ ≺ₖ l·σ` for every `σ` — substitution-stable rule decrease.
-* **Rules preserve `≈ₜ`**: every rule `(l, r)` has `l ≈ₜ r`.
-* **`I_can` consists of canonical irreducibles**: elements `c ∈ I_can`
-  satisfy `Canonical c` and `smtMin c = c`.
-* **Groups are `≈ₜ`-classes**: members of a group are pairwise `≈ₜ`.
-
-## Proof outline
-
-### Universal lemmas
-
-1. **Termination**: `kbo_wf` + `rule_kbo` + classical induction
-   gives `reaches_normal_form`.
-2. **Soundness**: `rule_equiv` + congruence gives `Step.equiv_of`.
-3. **`≺ₖ`-decrease**: `rule_kbo` + monotonicity gives `Step.kbo_of`.
-4. **Substitution-stability of rewriting**: `Step.subst` (via
-   `kbo_subst`, `equiv_subst`, definitional `apply` properties).
-
-### Strong completeness
-
-For ground inputs `s, t` with `s ≈ₜ t`:
-
-5. Phase 1: `s →* s'` and `t →* t'` via `R`; `s' ≈ₜ s ≈ₜ t ≈ₜ t'`.
-6. By `smtMin_resp_ground` (KBO total on ground): `smtMin s' = smtMin t'`.
-7. Phase 2 lookup yields this `smtMin`. Algorithm output is the
-   *unique* minimum of the `≈ₜ`-class.
-
-For inputs with variables:
-
-8. Same Phase 1.
-9. Phase 2 picks a `≺ₖ`-minimum; for KBO-incomparable minima, the
-   choice is up to renaming. The algorithm outputs a representative;
-   different runs may pick different α-equivalent representatives.
-
-### What's universal vs. signature-dependent
-
-**Universal**: Phase 1 termination + soundness; Phase 2 correctness on
-ground inputs (`smtMin` agreement).
-
-**Signature-dependent** (non-AC): Phase 2's α-equivalent normal forms
-for non-ground inputs.
-
-For AC signatures, Phase 2's "smallest" is still a minimum, but it's
-not α-equivalent across `≈ₜ`-equivalent inputs (different shapes).
-For AC, the algorithm still produces a correct ground result, but
-non-ground answers up-to-renaming don't exist.
+* **Rules are KBO-decreasing on the schema level**: every
+  `(l, r) ∈ R_can S n` satisfies `r ≺ₖ l`, hence `apply σ r ≺ₖ apply σ l`
+  for any σ.
+* **Rules preserve `≈ₜ`**: `(l, r) ∈ R_can S n` implies `l ≈ₜ r`.
+* **`I_can` members are smtMin-fixed**: `c ∈ I_can S n` implies
+  `smtMin c = c` (built into the I_can filter).
+* **`I_can` has at most one rep per `≈ₜ`-class**
+  (`I_can_unique_per_class`).
+* **`Step (R_can S n)` preserves `IsGround`**.
 
 ## File layout
 
 ```
-Signature.lean      -- σ, V, arities, decidable equalities
-Term.lean           -- var/node, size, decidable equality
-Subst.lean          -- concrete Subst, apply, Subst.comp;
-                       all substitution lemmas as theorems
-Equiv.lean          -- ≈ₜ axioms (refl/symm/trans/congr/subst)
-Kbo.lean            -- ≺ₖ axioms (wf/trans/mono_ctx/size_le/subst);
-                       kbo_total_ground for ground terms only
-Oracle.lean         -- smtMin oracle (equiv, min);
-                       smtMin_resp_ground derived; smtMin_strict, smtMin_idem
-Rewrite.lean        -- Step / StepStar with substitution-based root;
-                       Step.subst, Step.equiv_of, Step.kbo_of (as theorems)
-Algorithm.lean      -- R, I, mem_R, rule_kbo, rule_equiv,
-                       subterm_of_minimal_is_minimal
-CanonicalLayer.lean -- R_can, I_can with Canonical filter;
-                       complete_can (universal); complete_modulo_renaming
-                       (non-AC, via Step.subst).
+Signature.lean      σ, V, arities, decidable equalities
+Term.lean           var/node, size, IsGround, decidable equality
+Equiv.lean          ≈ₜ axioms (refl/symm/trans/congr)
+Kbo.lean            ≺ₖ axioms (wf/trans/total/mono_ctx/size_le)
+Subst.lean          concrete Subst, apply, comp, IsRenaming, AlphaEquiv;
+                    apply_id/comp/node and apply_ground are theorems;
+                    kbo_subst, equiv_subst are axioms
+Oracle.lean         smtMin (opaque) + smtMin_equiv/min/le (axioms);
+                    smtMin_resp (ground), smtMin_strict, smtMin_size derived
+Rewrite.lean        Step / StepStar with substitution-based root;
+                    Step.subst/equiv_of/kbo_of/lift/irreducible_arg as theorems;
+                    not_simplifiesWith_of_irreducible
+Algorithm.lean      R, I, mem_R, rule_kbo, rule_equiv,
+                    subterm_of_minimal_is_minimal,
+                    mem_termsFromIrreducible (axiom)
+CanonicalLayer.lean R_can, I_can with Canonical filter;
+                    canonical_of_ground, smtMin_apply_ground (axioms);
+                    ground_irreducible_in_I_can (theorem);
+                    complete_can, complete_common_normal_form,
+                    complete_modulo_renaming
 ```

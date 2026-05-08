@@ -13,21 +13,20 @@ subterms come from `I S (k-1)`; for each, either skip (simplifies via
 already-known rules), add to `I` (if `smtMin l = l`), or add a rule
 `(l, smtMin l)` to `R` (if `smtMin l ≠ l`).
 
+`CanonicalLayer.lean` mirrors this structure with an extra `Canonical`
+filter and proves the algorithm's completeness theorems.
+
 ## Proof obligations established here
-* `mem_R` — characterises rule membership for use by `Correctness.lean`'s
-  `reaches_smtMin` to inject a synthesised rule.
+* `mem_R` — iff-characterisation of rule membership in `R S n`.
 * `rule_equiv`, `rule_kbo` — every `R`-rule is `≈ₜ`-sound and
   `≺ₖ`-decreasing. Plumbed into `Step.equiv_of` / `Step.kbo_of`.
 * `subterm_of_minimal_is_minimal` — if `node f args` is its own `smtMin`,
-  every `args i` is too. Drives the inductive step of `minimal_in_I`.
+  every `args i` is too.
 
 ## Axioms (1)
-* `mem_termsFromIrreducible` — characterises which terms the
-  enumeration produces. Used in `minimal_in_I` (Correctness.lean) to
-  show a minimal node is enumerated, and in `reaches_smtMin` to confirm
-  `s' = node f (smtMin args)` is enumerated and hence has a rule.
-  `termsFromIrreducible` itself is `opaque` — concrete enumerators are
-  outside the abstract proof.
+* `mem_termsFromIrreducible` — specifies which terms the enumeration
+  produces. `termsFromIrreducible` itself is `opaque` — concrete
+  enumerators (their actual computation) are outside the abstract proof.
 -/
 
 namespace EnumRules
