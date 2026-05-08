@@ -10,11 +10,10 @@ of rewriting (`Step.equiv_of`) and the completeness conclusion
 ## Axioms (4)
 * `equiv_refl`, `equiv_symm`, `equiv_trans` — `≈ₜ` is an equivalence relation.
   Used everywhere a chain of `≈ₜ`-equalities is built (e.g.
-  `complete_can` chains `s ≈ s' ≈ t' ≈ t`; `complete_common_normal_form`
-  uses the same chain plus `smtMin_resp` on the ground endpoints).
+  `complete_common_normal_form` chains `s ≈ s' ≈ t' ≈ t` and applies
+  `smtMin_resp` to the ground endpoints).
 * `equiv_congr` — congruence over function nodes. Used in
-  `Step.equiv_of` (Rewrite.lean) for the contextual case, and in
-  `subterm_of_minimal_is_minimal` (Algorithm.lean).
+  `Step.equiv_of` (Rewrite.lean) for the contextual case.
 -/
 
 namespace EnumRules

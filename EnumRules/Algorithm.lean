@@ -1,4 +1,5 @@
 import Mathlib.Data.Finset.Basic
+import Mathlib.Data.Fintype.Pi
 import EnumRules.Rewrite
 
 open scoped Classical
@@ -7,163 +8,184 @@ open scoped Classical
 # The enumeration algorithm
 
 ## Role
-Defines, by mutual recursion on size, the rule set `R S n` and the
-irreducible set `I S n`. At size `k`, enumerate terms whose strict
-subterms come from `I S (k-1)`; for each, either skip (simplifies via
-already-known rules), add to `I` (if `smtMin l = l`), or add a rule
-`(l, smtMin l)` to `R` (if `smtMin l ≠ l`).
+Defines the algorithm's data structures:
+* `termsFromIrreducible` — enumeration of terms of a given size with
+  subterms in a given set. Concrete `Finset` (no axiom).
+* `Canonical` — opaque per-class representative-picking predicate.
+* `R_can S n` — synthesised rule set after processing all sizes ≤ n.
+* `I_can S n` — stored canonical irreducibles after processing all
+  sizes ≤ n. `R_can` and `I_can` are mutually recursive on size.
+* `ExtStep n` / `ExtStepStar n` — runtime operational steps:
+  rule rewriting (`Step (R_can S n)`) and class lookup
+  (`I_can S n`-anchored).
 
-`CanonicalLayer.lean` mirrors this structure with an extra `Canonical`
-filter and proves the algorithm's completeness theorems.
+`CanonicalLayer.lean` proves the algorithm's properties on top of
+these definitions (termination, soundness, ground-input
+common-normal-form completeness).
 
-## Proof obligations established here
-* `mem_R` — iff-characterisation of rule membership in `R S n`.
-* `rule_equiv`, `rule_kbo` — every `R`-rule is `≈ₜ`-sound and
-  `≺ₖ`-decreasing. Plumbed into `Step.equiv_of` / `Step.kbo_of`.
-* `subterm_of_minimal_is_minimal` — if `node f args` is its own `smtMin`,
-  every `args i` is too.
+## Axioms
+None in this file. `mem_termsFromIrreducible` is now a theorem
+derived from the concrete definition (which uses `Fintype S.σ` /
+`Fintype S.V`).
 
-## Axioms (1)
-* `mem_termsFromIrreducible` — specifies which terms the enumeration
-  produces. `termsFromIrreducible` itself is `opaque` — concrete
-  enumerators (their actual computation) are outside the abstract proof.
+## Opaque (1)
+* `Canonical : Term S → Prop` — no behavioural axioms here. The proofs
+  in `CanonicalLayer.lean` use one axiom about it (`canonical_of_ground`).
 -/
 
 namespace EnumRules
 
 variable {S : Signature}
 
-/-- Enumeration of terms of size `n` whose direct subterms all belong to
-the given set `subterms`. -/
-opaque termsFromIrreducible (S : Signature) (subterms : Finset (Term S)) (n : Nat) :
-    Finset (Term S)
+/-! ## Enumeration of terms by size -/
 
-/-- Specification of `termsFromIrreducible`. -/
-axiom mem_termsFromIrreducible {S : Signature} {subterms : Finset (Term S)} {n : Nat}
-    {t : Term S} :
+/-- Enumeration of terms of size `n` whose direct subterms (when the
+term is a node) all belong to `subterms`. Variables — which carry no
+node-decomposition — are included whenever `n = 1`. -/
+noncomputable def termsFromIrreducible (S : Signature)
+    (subterms : Finset (Term S)) : Nat → Finset (Term S)
+  | 0     => ∅
+  | n + 1 =>
+      (if n = 0 then (Finset.univ : Finset S.V).image Term.var else ∅) ∪
+      (Finset.univ : Finset S.σ).biUnion (fun f =>
+        ((Fintype.piFinset (fun _ : Fin (S.arity f) => subterms)).filter
+            (fun args => Term.size (Term.node f args) = n + 1)).image (Term.node f))
+
+/-- Specification of `termsFromIrreducible`: a term `t` is in
+`termsFromIrreducible S subterms n` iff its size is `n` and *every*
+node-decomposition `t = Term.node f args` has `args i ∈ subterms`
+(vacuous for variables). -/
+theorem mem_termsFromIrreducible {subterms : Finset (Term S)} {n : Nat} {t : Term S} :
     t ∈ termsFromIrreducible S subterms n ↔
       Term.size t = n ∧
       ∀ (f : S.σ) (args : Fin (S.arity f) → Term S),
-        Term.node f args = t → ∀ i, args i ∈ subterms
+        Term.node f args = t → ∀ i, args i ∈ subterms := by
+  match n with
+  | 0 =>
+      constructor
+      · intro h
+        simp [termsFromIrreducible] at h
+      · intro hand
+        exfalso
+        have hsize : Term.size t = 0 := hand.1
+        have hpos : 1 ≤ Term.size t := Term.size_pos t
+        omega
+  | n + 1 =>
+      cases t with
+      | var v =>
+          unfold termsFromIrreducible
+          rw [Finset.mem_union]
+          constructor
+          · rintro (hL | hR)
+            · -- Var disjunct
+              by_cases hn : n = 0
+              · subst hn
+                refine ⟨by simp [Term.size], fun f as heq => by cases heq⟩
+              · rw [if_neg hn] at hL
+                simp at hL
+            · -- Node disjunct: impossible
+              rw [Finset.mem_biUnion] at hR
+              obtain ⟨f, _, hf⟩ := hR
+              rw [Finset.mem_image] at hf
+              obtain ⟨as, _, hnode⟩ := hf
+              cases hnode
+          · rintro ⟨hsize, _⟩
+            left
+            have hn : n = 0 := by simp [Term.size] at hsize; omega
+            rw [if_pos hn]
+            rw [Finset.mem_image]
+            exact ⟨v, Finset.mem_univ _, rfl⟩
+      | node f as =>
+          unfold termsFromIrreducible
+          rw [Finset.mem_union]
+          constructor
+          · rintro (hL | hR)
+            · -- Var disjunct: contradiction
+              by_cases hn : n = 0
+              · rw [if_pos hn] at hL
+                rw [Finset.mem_image] at hL
+                obtain ⟨v, _, hcontra⟩ := hL
+                cases hcontra
+              · rw [if_neg hn] at hL
+                simp at hL
+            · -- Node disjunct
+              rw [Finset.mem_biUnion] at hR
+              obtain ⟨f', _, hf'⟩ := hR
+              rw [Finset.mem_image] at hf'
+              obtain ⟨bs, hargs', hnode⟩ := hf'
+              rw [Finset.mem_filter, Fintype.mem_piFinset] at hargs'
+              obtain ⟨hpi, hsize⟩ := hargs'
+              injection hnode with hf heq
+              subst hf
+              have hbs_eq : bs = as := eq_of_heq heq
+              rw [hbs_eq] at hpi hsize
+              refine ⟨hsize, ?_⟩
+              intro f₀ as₀ heq₀
+              injection heq₀ with hf₀ heq₀'
+              subst hf₀
+              have has_eq : as₀ = as := eq_of_heq heq₀'
+              rw [has_eq]
+              exact hpi
+          · rintro ⟨hsize, hsub⟩
+            right
+            rw [Finset.mem_biUnion]
+            refine ⟨f, Finset.mem_univ _, ?_⟩
+            rw [Finset.mem_image]
+            refine ⟨as, ?_, rfl⟩
+            rw [Finset.mem_filter, Fintype.mem_piFinset]
+            exact ⟨fun i => hsub f as rfl i, hsize⟩
+
+end EnumRules
+
+namespace EnumRules
+
+variable {S : Signature}
+
+/-! ## Canonical filter and the synthesised rule / irreducible sets -/
+
+/-- Canonicality predicate: a placeholder for any per-class
+representative-picking filter. The proofs require only that ground
+terms satisfy it (`canonical_of_ground` in `CanonicalLayer.lean`). -/
+opaque Canonical : Term S → Prop
 
 mutual
-  /-- The rule set after processing all sizes `≤ n`. -/
-  noncomputable def R (S : Signature) : Nat → RuleSet S
+  /-- The synthesised rule set after processing all sizes `≤ n`. -/
+  noncomputable def R_can (S : Signature) : Nat → RuleSet S
     | 0     => ∅
-    | n + 1 => R S n ∪ (
-        (termsFromIrreducible S (I S n) (n + 1)).filter (fun l =>
-          ¬ simplifiesWith (R S n) l ∧ smtMin l ≠ l)
+    | n + 1 => R_can S n ∪ (
+        (termsFromIrreducible S (I_can S n) (n + 1)).filter (fun l =>
+          Canonical l ∧ ¬ simplifiesWith (R_can S n) l ∧ smtMin l ≠ l)
           |>.image (fun l => (l, smtMin l)))
 
-  /-- The irreducible (already-minimal) set after processing all sizes `≤ n`. -/
-  noncomputable def I (S : Signature) : Nat → Finset (Term S)
+  /-- The stored canonical irreducible set after processing all sizes `≤ n`. -/
+  noncomputable def I_can (S : Signature) : Nat → Finset (Term S)
     | 0     => ∅
-    | n + 1 => I S n ∪ (
-        (termsFromIrreducible S (I S n) (n + 1)).filter (fun l =>
-          ¬ simplifiesWith (R S n) l ∧ smtMin l = l))
+    | n + 1 => I_can S n ∪ (
+        (termsFromIrreducible S (I_can S n) (n + 1)).filter (fun l =>
+          Canonical l ∧ ¬ simplifiesWith (R_can S n) l ∧ smtMin l = l))
 end
 
-/-- `R` is monotone. -/
-theorem R_subset {S : Signature} {m n : Nat} (h : m ≤ n) : R S m ⊆ R S n := by
-  induction h with
-  | refl => exact Finset.Subset.refl _
-  | step _ ih =>
-    intro x hx
-    rw [R]
-    exact Finset.mem_union_left _ (ih hx)
+/-! ## Runtime operational steps
 
-/-- `I` is monotone. -/
-theorem I_subset {S : Signature} {m n : Nat} (h : m ≤ n) : I S m ⊆ I S n := by
-  induction h with
-  | refl => exact Finset.Subset.refl _
-  | step _ ih =>
-    intro x hx
-    rw [I]
-    exact Finset.mem_union_left _ (ih hx)
+The algorithm's two operational steps — neither invokes `smtMin` at
+runtime; the SMT work is done at enumeration time when `R_can` and
+`I_can` are constructed. -/
 
-/-- Characterization of membership in `R n`. -/
-theorem mem_R {S : Signature} {n : Nat} {l r : Term S} :
-    (l, r) ∈ R S n ↔
-      ∃ m, m ≤ n ∧ Term.size l = m ∧
-      l ∈ termsFromIrreducible S (I S (m - 1)) m ∧
-      r = smtMin l ∧ l ≠ r ∧ ¬ simplifiesWith (R S (m - 1)) l := by
-  induction n with
-  | zero =>
-    rw [R]
-    have hRHS : ¬ ∃ m, m ≤ (0 : Nat) ∧ Term.size l = m ∧
-        l ∈ termsFromIrreducible S (I S (m - 1)) m ∧
-        r = smtMin l ∧ l ≠ r ∧ ¬ simplifiesWith (R S (m - 1)) l := by
-      rintro ⟨m, hm, hsize, _, _, _, _⟩
-      have hm0 : m = 0 := Nat.eq_zero_of_le_zero hm
-      subst hm0
-      have hpos : 1 ≤ Term.size l := Term.size_pos l
-      omega
-    constructor
-    · intro h; simp at h
-    · intro h; exact absurd h hRHS
-  | succ n ih =>
-    rw [R, Finset.mem_union]
-    constructor
-    · rintro (hRprev | hNew)
-      · rcases ih.mp hRprev with ⟨m, hm, hsize, hen, hr, hne, hnsp⟩
-        exact ⟨m, Nat.le_succ_of_le hm, hsize, hen, hr, hne, hnsp⟩
-      · rcases Finset.mem_image.1 hNew with ⟨l', hfilter, heq⟩
-        rcases Finset.mem_filter.1 hfilter with ⟨hmem_l', ⟨hnsp, hne'⟩⟩
-        have hl_eq : l' = l := congrArg Prod.fst heq
-        have hr_eq : smtMin l' = r := congrArg Prod.snd heq
-        rw [hl_eq] at hmem_l' hne' hr_eq hnsp
-        have hne_lr : l ≠ r := by
-          rw [← hr_eq]; exact Ne.symm hne'
-        refine ⟨n + 1, le_refl _, ?_, hmem_l', hr_eq.symm, hne_lr, hnsp⟩
-        rcases mem_termsFromIrreducible.mp hmem_l' with ⟨hsize, _⟩
-        exact hsize
-    · rintro ⟨m, hm, hsize, hen, hr, hne, hnsp⟩
-      rcases Nat.lt_or_eq_of_le hm with (hlt | heq)
-      · left
-        exact ih.mpr ⟨m, Nat.le_of_lt_succ hlt, hsize, hen, hr, hne, hnsp⟩
-      · subst heq
-        have hne_symm : smtMin l ≠ l := fun h => hne (h.symm.trans hr.symm)
-        right
-        refine Finset.mem_image.mpr ⟨l, Finset.mem_filter.mpr ⟨hen, hnsp, hne_symm⟩, ?_⟩
-        simp [hr]
+/-- Runtime operational step: either rule rewriting or class lookup. -/
+inductive ExtStep (n : Nat) : Term S → Term S → Prop where
+  /-- Standard rule rewriting (Phase 1). -/
+  | rule {s t : Term S} (h : Step (R_can S n) s t) : ExtStep n s t
+  /-- Equivalence-class step: from `t` to a stored `I_can` member
+  `c ≈ₜ t`, where `t` itself is a substitution-instance of some
+  `m ∈ I_can` (anchoring source and destination in the algorithm's
+  stored irreducibles). -/
+  | class_lookup {t c : Term S} {m : Term S} {σ : Subst S}
+      (hm : m ∈ I_can S n) (h_inst : apply σ m = t)
+      (hc : c ∈ I_can S n) (h_eq : t ≈ₜ c) :
+      ExtStep n t c
 
-/-- Every rule `(l, r)` in `R n` satisfies `l ≈ₜ r`. -/
-theorem rule_equiv {S : Signature} {n : Nat} {l r : Term S}
-    (h : (l, r) ∈ R S n) : l ≈ₜ r := by
-  rcases mem_R.mp h with ⟨_, _, _, _, hr, _, _⟩
-  subst hr
-  exact equiv_symm (smtMin_equiv l)
-
-/-- Every rule is KBO-decreasing on its skeleton. -/
-theorem rule_kbo {S : Signature} {n : Nat} {l r : Term S}
-    (h : (l, r) ∈ R S n) : r ≺ₖ l := by
-  rcases mem_R.mp h with ⟨_, _, _, _, hr, hne, _⟩
-  subst hr
-  exact smtMin_strict (Ne.symm hne)
-
-/-- If a node is minimal, all its subterms are also minimal. -/
-theorem subterm_of_minimal_is_minimal {S : Signature} {f : S.σ}
-    {args : Fin (S.arity f) → Term S} (hmin : smtMin (Term.node f args) = Term.node f args)
-    (i : Fin (S.arity f)) : smtMin (args i) = args i := by
-  by_contra hne
-  have hlt : smtMin (args i) ≺ₖ args i := smtMin_strict hne
-  let args' : Fin (S.arity f) → Term S :=
-    fun j => if j = i then smtMin (args i) else args j
-  have hrest : ∀ j, j ≠ i → args j = args' j := by
-    intro j hj; simp [args', hj]
-  have hkbo_node : (Term.node f args') ≺ₖ (Term.node f args) :=
-    kbo_mono_ctx (as := args) (bs := args') (i := i) hrest (by
-      dsimp [args']; simpa using hlt)
-  have hequiv_node : smtMin (args i) ≈ₜ args i := smtMin_equiv (args i)
-  have hequiv_args : ∀ j, args' j ≈ₜ args j := by
-    intro j
-    dsimp [args']
-    split_ifs with h
-    · subst h; exact hequiv_node
-    · exact equiv_refl _
-  have hequiv : (Term.node f args') ≈ₜ (Term.node f args) := equiv_congr hequiv_args
-  have h_contra := smtMin_min (t := Term.node f args) (u := Term.node f args') hequiv
-  apply h_contra
-  rw [hmin]; exact hkbo_node
+/-- Reflexive-transitive closure of `ExtStep n`. -/
+abbrev ExtStepStar (n : Nat) : Term S → Term S → Prop :=
+  Relation.ReflTransGen (ExtStep (S := S) n)
 
 end EnumRules

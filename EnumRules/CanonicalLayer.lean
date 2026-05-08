@@ -3,30 +3,19 @@ import EnumRules.Algorithm
 open scoped Classical
 
 /-
-# Canonical-filtered algorithm + completeness theorems
+# Algorithm correctness on top of `Algorithm.lean`'s definitions
 
 ## Role
-Defines `R_can S n` and `I_can S n` (canonical-filtered rule and
-irreducible sets) and proves three completeness results:
+Proves the algorithm's completeness theorem:
 
-* `complete_can` — for *any* signature, `≈ₜ`-equivalent inputs reach
-  `R_can`-irreducible normal forms that are themselves `≈ₜ`-equivalent
-  (confluence up to `≈ₜ`).
 * `complete_common_normal_form` — for *S.V-ground* `≈ₜ`-equivalent
-  inputs, the algorithm reaches the **same** representative
-  `c ∈ I_can S n` (uniqueness via `I_can_unique_per_class`, which
-  uses `smtMin_resp` on ground inputs). The main runtime correctness
-  statement.
-* `complete_modulo_renaming` — for α-equivalent inputs, the algorithm
-  produces α-equivalent normal forms (uses `Step.subst` for
-  α-equivariance of rewriting).
+  inputs of bounded size, the algorithm reaches the **same**
+  representative `c ∈ I_can S n`.
 
-The `Canonical` filter is a placeholder for any per-class
-representative-picking predicate; the proofs only require ground
-terms to satisfy it (`canonical_of_ground`).
+`R_can`, `I_can`, `ExtStep`, `ExtStepStar`, and `Canonical` are
+defined in `Algorithm.lean`; this file proves their properties.
 
-## Axioms (3)
-* `Canonical : Term S → Prop` opaque, no behavioural axioms by itself.
+## Axioms (2)
 * `canonical_of_ground` — every ground term is canonical. Vacuously
   true: `Canonical` constrains how S.V variables appear, but ground
   terms have none.
@@ -54,25 +43,6 @@ theorem reaches *exact* equality (no α-quotient).
 namespace EnumRules
 
 variable {S : Signature}
-
-opaque Canonical : Term S → Prop
-
-/-! ## Canonical-filtered rule and irreducible sets -/
-
-mutual
-  noncomputable def R_can (S : Signature) : Nat → RuleSet S
-    | 0     => ∅
-    | n + 1 => R_can S n ∪ (
-        (termsFromIrreducible S (I_can S n) (n + 1)).filter (fun l =>
-          Canonical l ∧ ¬ simplifiesWith (R_can S n) l ∧ smtMin l ≠ l)
-          |>.image (fun l => (l, smtMin l)))
-
-  noncomputable def I_can (S : Signature) : Nat → Finset (Term S)
-    | 0     => ∅
-    | n + 1 => I_can S n ∪ (
-        (termsFromIrreducible S (I_can S n) (n + 1)).filter (fun l =>
-          Canonical l ∧ ¬ simplifiesWith (R_can S n) l ∧ smtMin l = l))
-end
 
 theorem R_can_subset {S : Signature} {m n : Nat} (h : m ≤ n) :
     R_can S m ⊆ R_can S n := by
@@ -159,78 +129,13 @@ theorem saturated_can {n : Nat} {l : Term S} (hsize : Term.size l ≤ n)
     Step (R_can S n) l (smtMin l) :=
   Step.root_id (mem_R_can_intro hsize hen hcan hnsp hne)
 
-/-! ## Universal completeness (any signature)
+/-! ## ExtStep / ExtStepStar properties
 
-For any `s ≈ₜ t`, Phase 1 (rewriting) produces irreducible normal
-forms `s', t'` that are themselves `≈ₜ`-equivalent: rewriting is
-sound for `≈ₜ`, so `s' ≈ₜ s ≈ₜ t ≈ₜ t'`.
-
-This is confluence up to `≈ₜ`. The stronger Phase-2 conclusion
-`smtMin s' = smtMin t'` would need `kbo_total` on `smtMin s'`,
-`smtMin t'`, which our axiom only provides on ground terms — so
-that strengthening lives in `complete_common_normal_form` (ground
-inputs reach the *same* `I_can` representative). -/
-theorem complete_can (n : Nat) {s t : Term S} (hst : s ≈ₜ t) :
-    ∃ s' t',
-      StepStar (R_can S n) s s' ∧ StepStar (R_can S n) t t' ∧
-      (∀ u, ¬ Step (R_can S n) s' u) ∧ (∀ u, ¬ Step (R_can S n) t' u) ∧
-      s ≈ₜ s' ∧ t ≈ₜ t' ∧
-      s' ≈ₜ t' := by
-  rcases reaches_normal_form_can n s with ⟨s', hs', hs_irr⟩
-  rcases reaches_normal_form_can n t with ⟨t', ht', ht_irr⟩
-  have hs_eq : s ≈ₜ s' := StepStar.equiv_of (fun hlr => rule_equiv_can hlr) hs'
-  have ht_eq : t ≈ₜ t' := StepStar.equiv_of (fun hlr => rule_equiv_can hlr) ht'
-  have hst' : s' ≈ₜ t' :=
-    equiv_trans (equiv_symm hs_eq) (equiv_trans hst ht_eq)
-  exact ⟨s', t', hs', ht', hs_irr, ht_irr, hs_eq, ht_eq, hst'⟩
-
-/-! ## Optional non-AC extension: α-equivalent inputs
-
-For α-equivalent inputs, the rewrite path is α-equivariant
-(`Step.subst`), and the result is α-equivalent. This holds *without*
-any AC-failing axiom — only relies on substitution-stability of
-rewriting (`Step.subst` from `Rewrite.lean`).
-
-Note this requires the **inputs** to be α-equivalent. Two `≈ₜ`-equivalent
-inputs that are not α-equivalent (the AC case) cannot be related this way. -/
-
-theorem IsRenaming.preserves_step_irreducible {R : RuleSet S} {s' : Term S}
-    {ρ : Subst S} (hρ : IsRenaming ρ) (hirr : ∀ u, ¬ Step R s' u) :
-    ∀ u, ¬ Step R (apply ρ s') u :=
-  hρ.preserves_irreducible (fun h τ => Step.subst h τ) hirr
-
-theorem complete_modulo_renaming (n : Nat) {s t : Term S} (h : s ≈ᵅ t) :
-    ∃ s' t', StepStar (R_can S n) s s' ∧
-             (∀ u, ¬ Step (R_can S n) s' u) ∧
-             StepStar (R_can S n) t t' ∧
-             (∀ u, ¬ Step (R_can S n) t' u) ∧
-             s' ≈ᵅ t' := by
-  rcases h with ⟨ρ, hρ_ren, hρ⟩
-  rcases reaches_normal_form_can n s with ⟨s', hss', hs_irr⟩
-  exact ⟨s', apply ρ s', hss', hs_irr,
-    hρ ▸ StepStar.subst hss' ρ,
-    hρ_ren.preserves_step_irreducible hs_irr,
-    ρ, hρ_ren, rfl⟩
-
-/-! ## Extended rewriting and common normal form
-
-The algorithm's operational steps are two — neither invokes `smtMin`
-at runtime; the SMT work is all done at enumeration time when
-constructing the rule set `R_can` and storing irreducibles in `I_can`:
-
-1. **Rule rewriting** (`ExtStep.rule`, wrapping `Step (R_can S n)`) —
-   fire a synthesised rule under any substitution. This is Phase 1.
-2. **Equivalence-class step** (`ExtStep.class_lookup`) — replace `t`
-   with a stored canonical class member `c ∈ I_can` such that `t ≈ₜ c`,
-   when `t` itself is a substitution-instance of some `m ∈ I_can`
-   (anchoring source and destination in the algorithm's stored
-   irreducibles). The `c ≈ₜ t` decision is an SMT check made at
-   enumeration time and stored in the group structure.
-
-Both steps preserve `≈ₜ` (rules by `rule_equiv_can`; class lookup
-by hypothesis). A `smtMin` runtime step is **not** included —
-`smtMin t` is recovered as the *unique* representative `c ∈ I_can`
-with `c ≈ₜ t`, found via `class_lookup`.
+The two operational steps (`ExtStep.rule`, `ExtStep.class_lookup`)
+are defined in `Algorithm.lean`. Both preserve `≈ₜ` (rules by
+`rule_equiv_can`; class lookup by hypothesis). A `smtMin` runtime
+step is **not** included — `smtMin t` is recovered as the *unique*
+representative `c ∈ I_can` with `c ≈ₜ t`, found via `class_lookup`.
 
 For *ground* inputs, the source `t` of a `class_lookup` step is itself
 the irreducible normal form `s'`, and `s' ∈ I_can S n` directly (by
@@ -418,22 +323,6 @@ theorem I_can_complete_subst {n : Nat} {t : Term S}
     (∃ c, c ∈ I_can S n ∧ c ≈ₜ t) := by
   have ht_mem : t ∈ I_can S n := ground_irreducible_in_I_can hsize hground hirr
   exact ⟨⟨t, Subst.id, ht_mem, apply_id t⟩, ⟨t, ht_mem, equiv_refl t⟩⟩
-
-inductive ExtStep (n : Nat) : Term S → Term S → Prop where
-  /-- Standard rule rewriting (Phase 1). -/
-  | rule {s t : Term S} (h : Step (R_can S n) s t) : ExtStep n s t
-  /-- Equivalence-class step: from `t` to a stored `I_can` member
-  `c ≈ₜ t`, where `t` itself is a substitution-instance of some
-  `m ∈ I_can` (i.e., the source `t` lies in `I_can` *modulo substitution*).
-  Both source-side (`apply σ m = t`) and destination-side (`c ∈ I_can`)
-  are anchored in the algorithm's stored canonical irreducibles. -/
-  | class_lookup {t c : Term S} {m : Term S} {σ : Subst S}
-      (hm : m ∈ I_can S n) (h_inst : apply σ m = t)
-      (hc : c ∈ I_can S n) (h_eq : t ≈ₜ c) :
-      ExtStep n t c
-
-abbrev ExtStepStar (n : Nat) : Term S → Term S → Prop :=
-  Relation.ReflTransGen (ExtStep (S := S) n)
 
 namespace ExtStep
 

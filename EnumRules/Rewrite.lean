@@ -18,8 +18,6 @@ Properties of `Step` plumbed into the algorithm correctness proof:
   `equiv_congr`, `equiv_refl`).
 * `kbo_of` — rewriting strictly decreases `≺ₖ` (via `kbo_subst`,
   `kbo_mono_ctx`).
-* `subst` — rewriting commutes with `apply ρ` (via `apply_comp`,
-  `apply_node`). Used in `CanonicalLayer.complete_modulo_renaming`.
 * `irreducible_arg` — irreducibility passes to subterms (contrapositive
   of `Step.ctx`). Used in `ground_irreducible_in_I_can`.
 * `root_id` — fire a rule "as written" (no further substitution).
@@ -98,22 +96,6 @@ theorem lift {R₁ R₂ : RuleSet S} (hR : R₁ ⊆ R₂) {s t : Term S}
   | root σ hmem => exact Step.root σ (hR hmem)
   | ctx _ hrest ih => exact Step.ctx ih hrest
 
-/-- Substitution-stability: rewriting commutes with `apply`. A step
-under substitution `σ` lifts under `ρ` to a step under `Subst.comp ρ σ`,
-and contextual closure follows by `apply_node`. -/
-theorem subst {R : RuleSet S} {s t : Term S} (h : Step R s t) (ρ : Subst S) :
-    Step R (apply ρ s) (apply ρ t) := by
-  induction h with
-  | @root l r σ hmem =>
-      have h₁ : Step R (apply (Subst.comp ρ σ) l) (apply (Subst.comp ρ σ) r) :=
-        Step.root (Subst.comp ρ σ) hmem
-      rw [apply_comp, apply_comp] at h₁
-      exact h₁
-  | @ctx f as bs i _ hrest ih =>
-      rw [apply_node, apply_node]
-      refine Step.ctx (i := i) ih ?_
-      intro j hj; rw [hrest j hj]
-
 /-- Contrapositive of `Step.ctx`: subterms of an irreducible node are
 themselves irreducible. -/
 theorem irreducible_arg {R : RuleSet S} {f : S.σ}
@@ -158,15 +140,6 @@ theorem lift {R₁ R₂ : RuleSet S} (hR : R₁ ⊆ R₂) {s t : Term S}
   | refl => exact Relation.ReflTransGen.refl
   | tail _ hstep ih =>
     exact Relation.ReflTransGen.tail ih (Step.lift hR hstep)
-
-/-- Substitution-stability of multi-step rewriting. -/
-theorem subst {R : RuleSet S} {s t : Term S}
-    (h : StepStar R s t) (ρ : Subst S) :
-    StepStar R (apply ρ s) (apply ρ t) := by
-  induction h with
-  | refl => exact Relation.ReflTransGen.refl
-  | tail _ hstep ih =>
-      exact Relation.ReflTransGen.tail ih (Step.subst hstep ρ)
 
 end StepStar
 

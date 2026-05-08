@@ -88,8 +88,8 @@ input or a strictly KBO-smaller equivalent).
 
 Mutually recursive on size `n = 1, 2, …`:
 
-* **rule set** `R_can S n` (and uncanonicalised `R S n`),
-* **irreducible set** `I_can S n` (and uncanonicalised `I S n`).
+* **rule set** `R_can S n`,
+* **irreducible set** `I_can S n`.
 
 ```
 for n = 1, 2, …:
@@ -128,24 +128,9 @@ Inputs are S.V-ground. Two operational steps (`ExtStep`):
 No `smtMin` call happens at runtime — the SMT work is all paid at
 enumeration time.
 
-## Completeness theorems
+## Completeness theorem
 
-Three results in `CanonicalLayer.lean`:
-
-### `complete_can` — for any signature
-
-```
-s ≈ₜ t →
-  ∃ s' t', s →* s' ∧ t →* t' ∧ s' ≈ₜ t'
-```
-
-Confluence up to `≈ₜ`: equivalent inputs reach equivalent
-`R_can`-irreducible normal forms. The Phase-2 strengthening
-(`smtMin s' = smtMin t'`) requires totality of KBO on `smtMin s'` /
-`smtMin t'`, which `kbo_total` only provides on ground terms — so
-that strengthening lives in `complete_common_normal_form`.
-
-### `complete_common_normal_form` — for ground inputs (main runtime theorem)
+### `complete_common_normal_form` (in `CanonicalLayer.lean`)
 
 ```
 IsGround s ∧ IsGround t ∧ size s ≤ n ∧ size t ≤ n ∧ s ≈ₜ t →
@@ -154,20 +139,13 @@ IsGround s ∧ IsGround t ∧ size s ≤ n ∧ size t ≤ n ∧ s ≈ₜ t →
 
 For ground `≈ₜ`-equivalent inputs of bounded size, the algorithm
 reaches the **same** stored representative `c ∈ I_can S n` from both —
-no quotient or up-to-renaming. Proof: rewriting preserves groundness
-(`Step.preserves_ground`), `s'` and `t'` are both ground irreducibles
-hence in `I_can` (`ground_irreducible_in_I_can`), and
-`I_can_unique_per_class` forces `s' = t'`.
+no quotient or up-to-renaming.
 
-### `complete_modulo_renaming` — for α-equivalent inputs
-
-```
-s ≈ᵅ t → ∃ s' t', s →* s' ∧ t →* t' ∧ s' ≈ᵅ t'
-```
-
-α-equivalent rewrite paths via `Step.subst` (substitution-stability of
-rewriting). Independent of `≈ₜ` semantics; uses no axioms beyond
-`Step.subst`.
+Proof: rewriting preserves groundness (`Step.preserves_ground`), so
+`s'` and `t'` (the irreducible normal forms) are both ground;
+`ground_irreducible_in_I_can` puts them in `I_can S n`; and
+`I_can_unique_per_class` (which uses `smtMin_resp` on ground inputs)
+forces `s' = t'`.
 
 ## Axioms
 
@@ -177,9 +155,10 @@ Kbo.lean         (5)  kbo_wf, kbo_trans, kbo_total (ground only),
                       kbo_mono_ctx, kbo_size_le
 Subst.lean       (2)  kbo_subst, equiv_subst
 Oracle.lean      (3)  smtMin_equiv, smtMin_min, smtMin_le
-Algorithm.lean   (1)  mem_termsFromIrreducible (specifies enumeration)
-CanonicalLayer   (3)  Canonical (opaque), canonical_of_ground,
-                      smtMin_apply_ground
+Algorithm.lean   (0)  Canonical (opaque); termsFromIrreducible is a
+                      concrete `noncomputable def` and
+                      `mem_termsFromIrreducible` is a theorem
+CanonicalLayer   (2)  canonical_of_ground, smtMin_apply_ground
 ```
 
 `kbo_total` carries an `IsGround` hypothesis so it stays sound on
@@ -188,12 +167,14 @@ is now an axiom (was a theorem from uniform `kbo_total`); it holds
 for any well-behaved oracle.
 
 `canonical_of_ground` and `smtMin_apply_ground` exist purely to
-support the ground-restricted theorems and `Step.preserves_ground`.
-The universal `complete_can` doesn't depend on either.
+support the ground-restricted completeness theorem and
+`Step.preserves_ground`.
 
 ### What's a theorem (was previously an axiom)
 
-* `apply_id`, `apply_comp`, `apply_node` — structural recursion on `apply`.
+* `apply_id`, `apply_node` — structural facts about `apply`.
+* `mem_termsFromIrreducible` — derived from the concrete definition
+  of `termsFromIrreducible` (uses `Fintype` on `S.σ` / `S.V`).
 * `smtMin_resp` — uniqueness of class minimum on **ground** inputs
   (from `smtMin_min` + ground `kbo_total`).
 * `ground_irreducible_in_I_can` — by structural induction on `t`.
@@ -219,20 +200,21 @@ Signature.lean      σ, V, arities, decidable equalities
 Term.lean           var/node, size, IsGround, decidable equality
 Equiv.lean          ≈ₜ axioms (refl/symm/trans/congr)
 Kbo.lean            ≺ₖ axioms (wf/trans/total/mono_ctx/size_le)
-Subst.lean          concrete Subst, apply, comp, IsRenaming, AlphaEquiv;
-                    apply_id/comp/node and apply_ground are theorems;
+Subst.lean          concrete Subst, Subst.id, apply;
+                    apply_id and apply_node are theorems;
                     kbo_subst, equiv_subst are axioms
 Oracle.lean         smtMin (opaque) + smtMin_equiv/min/le (axioms);
                     smtMin_resp (ground), smtMin_strict, smtMin_size derived
 Rewrite.lean        Step / StepStar with substitution-based root;
-                    Step.subst/equiv_of/kbo_of/lift/irreducible_arg as theorems;
+                    Step.equiv_of/kbo_of/lift/irreducible_arg as theorems;
                     not_simplifiesWith_of_irreducible
-Algorithm.lean      R, I, mem_R, rule_kbo, rule_equiv,
-                    subterm_of_minimal_is_minimal,
-                    mem_termsFromIrreducible (axiom)
-CanonicalLayer.lean R_can, I_can with Canonical filter;
-                    canonical_of_ground, smtMin_apply_ground (axioms);
+Algorithm.lean      termsFromIrreducible (concrete noncomputable def),
+                    mem_termsFromIrreducible (theorem);
+                    Canonical (opaque); R_can, I_can (mutual);
+                    ExtStep, ExtStepStar
+CanonicalLayer.lean canonical_of_ground, smtMin_apply_ground (axioms);
+                    R_can/I_can structural lemmas (subset, mem_R_can_*);
+                    rule_equiv_can, rule_kbo_can, terminates_can;
                     ground_irreducible_in_I_can (theorem);
-                    complete_can, complete_common_normal_form,
-                    complete_modulo_renaming
+                    complete_common_normal_form
 ```
