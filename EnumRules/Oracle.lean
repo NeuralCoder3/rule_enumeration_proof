@@ -55,19 +55,15 @@ combined with groundness of an `I_can` member). -/
 theorem smtMin_resp {s t : Term S}
     (hs : Term.IsGround (smtMin s)) (ht : Term.IsGround (smtMin t))
     (h : s ≈ₜ t) : smtMin s = smtMin t := by
-  have h1 : (smtMin s) ≈ₜ t := equiv_trans (smtMin_equiv s) h
-  have h2 : ¬ ((smtMin s) ≺ₖ (smtMin t)) := smtMin_min (smtMin s) h1
-  have h3 : (smtMin t) ≈ₜ s := equiv_trans (smtMin_equiv t) (equiv_symm h)
-  have h4 : ¬ ((smtMin t) ≺ₖ (smtMin s)) := smtMin_min (smtMin t) h3
+  have hst : (smtMin s) ≈ₜ t := equiv_trans (smtMin_equiv s) h
+  have hts : (smtMin t) ≈ₜ s := equiv_trans (smtMin_equiv t) (equiv_symm h)
   rcases kbo_total hs ht with heq | hlt | hlt
   · exact heq
-  · exact (h2 hlt).elim
-  · exact (h4 hlt).elim
+  · exact absurd hlt (smtMin_min _ hst)
+  · exact absurd hlt (smtMin_min _ hts)
 
-theorem smtMin_strict {t : Term S} (h : smtMin t ≠ t) : smtMin t ≺ₖ t := by
-  rcases smtMin_le t with heq | hlt
-  · exact (h heq).elim
-  · exact hlt
+theorem smtMin_strict {t : Term S} (h : smtMin t ≠ t) : smtMin t ≺ₖ t :=
+  (smtMin_le t).resolve_left h
 
 theorem smtMin_size (t : Term S) : Term.size (smtMin t) ≤ Term.size t := by
   rcases smtMin_le t with heq | hlt

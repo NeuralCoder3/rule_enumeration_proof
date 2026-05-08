@@ -69,12 +69,10 @@ theorem equiv_of
   induction hst with
   | root σ hlr => exact equiv_subst (hR hlr) σ
   | @ctx f as bs i _ hrest ih =>
-      have harg : ∀ j, as j ≈ₜ bs j := by
-        intro j
-        by_cases hj : j = i
-        · cases hj; exact ih
-        · exact (hrest j hj) ▸ equiv_refl _
-      exact equiv_congr harg
+      refine equiv_congr fun j => ?_
+      by_cases hj : j = i
+      · exact hj ▸ ih
+      · exact hrest j hj ▸ equiv_refl _
 
 /-- KBO-decrease: a step under a KBO-decreasing rule set is itself
 KBO-decreasing — pointwise on rule skeletons (`r ≺ₖ l`) lifts to every
@@ -85,9 +83,7 @@ theorem kbo_of
     {s t : Term S} (hst : Step R s t) : t ≺ₖ s := by
   induction hst with
   | root σ hlr => exact kbo_subst (hR hlr) σ
-  | @ctx f as bs i _ hrest ih =>
-      exact kbo_mono_ctx (as := as) (bs := bs) (i := i)
-        (fun j hj => hrest j hj) ih
+  | ctx _ hrest ih => exact kbo_mono_ctx hrest ih
 
 /-- Lift a step to a larger rule set. -/
 theorem lift {R₁ R₂ : RuleSet S} (hR : R₁ ⊆ R₂) {s t : Term S}
@@ -154,37 +150,27 @@ theorem StepStar.ctx {R : RuleSet S} {f : S.σ}
     (h : StepStar R (args i) v) :
     StepStar R (Term.node f args)
       (Term.node f (fun j => if j = i then v else args j)) := by
-  match h with
-  | Relation.ReflTransGen.refl =>
-    have h_eq : (fun j : Fin (S.arity f) => if j = i then args i else args j) = args := by
-      funext j; dsimp; split_ifs with h
-      · subst h; rfl
-      · rfl
-    simpa [h_eq] using (Relation.ReflTransGen.refl : StepStar R (Term.node f args) (Term.node f args))
-  | Relation.ReflTransGen.tail hprefix hstep =>
-    rename_i b
-    have ih := StepStar.ctx hprefix
-    have hlast : Step R
-        (Term.node f (fun j => if j = i then b else args j))
-        (Term.node f (fun j => if j = i then v else args j)) := by
-      have hstep' : Step R ((fun j => if j = i then b else args j) i)
-                           ((fun j => if j = i then v else args j) i) := by
-        simpa using hstep
-      exact Step.ctx (as := fun j => if j = i then b else args j)
-                     (bs := fun j => if j = i then v else args j)
-                     (i := i) hstep' (by intro j hj; simp [hj])
-    exact Relation.ReflTransGen.tail ih hlast
+  induction h with
+  | refl =>
+      have heq : (fun j : Fin (S.arity f) => if j = i then args i else args j) = args := by
+        funext j; split_ifs with hj
+        · subst hj; rfl
+        · rfl
+      rw [heq]
+  | @tail _ b _ hstep ih =>
+      refine Relation.ReflTransGen.tail ih (Step.ctx (i := i) ?_ ?_)
+      · simpa using hstep
+      · intro j hj; simp [hj]
 
 /-- If a term simplifies, the reduced term is strictly KBO-smaller. -/
 theorem simplifiesWith.kbo_lt {R : RuleSet S}
     (hR : ∀ {l r : Term S}, (l, r) ∈ R → r ≺ₖ l)
     {t : Term S} (h : simplifiesWith R t) :
     ∃ u, StepStar R t u ∧ Term.size u < Term.size t ∧ u ≺ₖ t := by
-  rcases h with ⟨u, htu, hsize_u⟩
-  rcases StepStar.kbo_of hR htu with (heq | hlt)
-  · rw [heq] at hsize_u
-    exact absurd hsize_u (Nat.lt_irrefl _)
-  · exact ⟨u, htu, hsize_u, hlt⟩
+  obtain ⟨u, htu, hsize⟩ := h
+  rcases StepStar.kbo_of hR htu with rfl | hlt
+  · omega
+  · exact ⟨u, htu, hsize, hlt⟩
 
 /-- An irreducible term doesn't simplify: no `StepStar` path can lower
 its size. -/
@@ -195,10 +181,8 @@ theorem not_simplifiesWith_of_irreducible {R : RuleSet S} {t : Term S}
     clear hsize
     induction htu with
     | refl => rfl
-    | tail _ hstep ih =>
-        rw [← ih] at hstep
-        exact (h _ hstep).elim
-  rw [← heq] at hsize
-  exact Nat.lt_irrefl _ hsize
+    | tail _ hstep ih => exact absurd (ih ▸ hstep) (h _)
+  rw [heq] at hsize
+  exact absurd hsize (Nat.lt_irrefl _)
 
 end EnumRules

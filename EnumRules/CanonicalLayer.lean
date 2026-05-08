@@ -59,17 +59,13 @@ theorem I_can_subset {S : Signature} {m n : Nat} (h : m ≤ n) :
 theorem mem_R_can_props {n : Nat} {l r : Term S} (h : (l, r) ∈ R_can S n) :
     r = smtMin l ∧ l ≠ r := by
   induction n with
-  | zero => rw [R_can] at h; simp at h
+  | zero => simp [R_can] at h
   | succ n ih =>
-      rw [R_can, Finset.mem_union] at h
-      rcases h with hPrev | hNew
+      simp only [R_can, Finset.mem_union, Finset.mem_image, Finset.mem_filter] at h
+      rcases h with hPrev | ⟨l', ⟨_, _, _, hne⟩, hpair⟩
       · exact ih hPrev
-      · rcases Finset.mem_image.1 hNew with ⟨l', hfilter, heq⟩
-        rcases Finset.mem_filter.1 hfilter with ⟨_, _, _, hne'⟩
-        have hl_eq : l' = l := congrArg Prod.fst heq
-        have hr_eq : smtMin l' = r := congrArg Prod.snd heq
-        rw [hl_eq] at hne' hr_eq
-        exact ⟨hr_eq.symm, fun hlr => hne' (hr_eq.trans hlr.symm)⟩
+      · obtain ⟨rfl, rfl⟩ := Prod.mk.inj hpair
+        exact ⟨rfl, Ne.symm hne⟩
 
 theorem mem_R_can_intro {n : Nat} {l : Term S}
     (hsize : Term.size l ≤ n)
@@ -78,16 +74,13 @@ theorem mem_R_can_intro {n : Nat} {l : Term S}
     (hnsp : ¬ simplifiesWith (R_can S (Term.size l - 1)) l)
     (hne : smtMin l ≠ l) :
     (l, smtMin l) ∈ R_can S n := by
-  have h_at_size : (l, smtMin l) ∈ R_can S (Term.size l) := by
-    set k := Term.size l - 1 with hk
-    have hk_succ : k + 1 = Term.size l := by
-      simp [hk]; have := Term.size_pos l; omega
-    rw [← hk_succ, R_can]
-    refine Finset.mem_union_right _ <| Finset.mem_image.mpr
-      ⟨l, Finset.mem_filter.mpr ⟨?_, hcan, ?_, hne⟩, rfl⟩
-    · rw [hk_succ]; exact hen
-    · exact hnsp
-  exact R_can_subset hsize h_at_size
+  refine R_can_subset hsize ?_
+  have hsucc : Term.size l - 1 + 1 = Term.size l := by
+    have := Term.size_pos l; omega
+  rw [← hsucc, R_can]
+  refine Finset.mem_union_right _ (Finset.mem_image.mpr
+    ⟨l, Finset.mem_filter.mpr ⟨?_, hcan, hnsp, hne⟩, rfl⟩)
+  rwa [hsucc]
 
 theorem rule_equiv_can {n : Nat} {l r : Term S} (h : (l, r) ∈ R_can S n) :
     l ≈ₜ r := by
@@ -103,21 +96,18 @@ theorem rule_kbo_can {n : Nat} {l r : Term S} (h : (l, r) ∈ R_can S n) :
 /-! ## Termination + reaching a normal form -/
 
 theorem terminates_can (n : Nat) :
-    WellFounded (fun t s : Term S => Step (R_can S n) s t) := by
-  apply Subrelation.wf (r := fun t s : Term S => t ≺ₖ s)
-  · intro t s h; exact Step.kbo_of (fun hlr => rule_kbo_can hlr) h
-  · exact InvImage.wf (f := id) kbo_wf
+    WellFounded (fun t s : Term S => Step (R_can S n) s t) :=
+  Subrelation.wf (fun h => Step.kbo_of (fun hlr => rule_kbo_can hlr) h) kbo_wf
 
 theorem reaches_normal_form_can (n : Nat) (s : Term S) :
     ∃ s', StepStar (R_can S n) s s' ∧ ∀ u, ¬ Step (R_can S n) s' u := by
   induction s using (terminates_can n).induction with
   | _ s ih =>
       by_cases h : ∃ u, Step (R_can S n) s u
-      · rcases h with ⟨u, hu⟩
-        rcases ih u hu with ⟨s', hsu, hirr⟩
-        exact ⟨s', Relation.ReflTransGen.head hu hsu, hirr⟩
-      · push Not at h
-        exact ⟨s, Relation.ReflTransGen.refl, h⟩
+      · obtain ⟨u, hu⟩ := h
+        obtain ⟨s', hsu, hirr⟩ := ih u hu
+        exact ⟨s', .head hu hsu, hirr⟩
+      · exact ⟨s, .refl, fun u hu => h ⟨u, hu⟩⟩
 
 /-- **Saturation**: every well-formed canonical reducible term has a
 rule in `R_can` (one-step reduction). -/
@@ -162,13 +152,11 @@ respects `≈ₜ` on ground inputs. -/
 theorem I_can_unique_per_class {n : Nat} {c d : Term S}
     (hc_ground : Term.IsGround c) (hd_ground : Term.IsGround d)
     (hc : c ∈ I_can S n) (hd : d ∈ I_can S n) (h : c ≈ₜ d) : c = d := by
-  have hsm_c : smtMin c = c := I_can_smtMin_fixed hc
-  have hsm_d : smtMin d = d := I_can_smtMin_fixed hd
-  have hg_smc : Term.IsGround (smtMin c) := hsm_c.symm ▸ hc_ground
-  have hg_smd : Term.IsGround (smtMin d) := hsm_d.symm ▸ hd_ground
-  have h_eq : smtMin c = smtMin d := smtMin_resp hg_smc hg_smd h
-  rw [hsm_c, hsm_d] at h_eq
-  exact h_eq
+  have hsm_c := I_can_smtMin_fixed hc
+  have hsm_d := I_can_smtMin_fixed hd
+  calc c = smtMin c := hsm_c.symm
+    _ = smtMin d := smtMin_resp (hsm_c.symm ▸ hc_ground) (hsm_d.symm ▸ hd_ground) h
+    _ = d := hsm_d
 
 /-! ## Ground-restricted completeness
 
@@ -237,56 +225,37 @@ private theorem ground_irreducible_in_I_can_at_size : ∀ (t : Term S),
     t ∈ I_can S (Term.size t) := by
   intro t
   induction t with
-  | var v => intro hg _; exact hg.elim
+  | var v => exact fun hg _ => hg.elim
   | node f args ih =>
       intro hg hirr
-      have hm_pos : 0 < Term.size (Term.node f args) := Term.size_pos _
-      -- IH: each subterm is in I_can at its own size; lift to I_can S (size t - 1).
-      have hargs_mem : ∀ i, args i ∈ I_can S (Term.size (Term.node f args) - 1) := by
-        intro i
-        have hsi_lt : Term.size (args i) < Term.size (Term.node f args) :=
-          Term.size_arg_lt f args i
-        have hg_i : Term.IsGround (args i) := hg i
-        have hirr_i : ∀ u, ¬ Step (R_can S (Term.size (args i))) (args i) u := by
-          intro u hstep
-          have hstep_lift : Step (R_can S (Term.size (Term.node f args))) (args i) u :=
-            Step.lift (R_can_subset (le_of_lt hsi_lt)) hstep
-          exact Step.irreducible_arg hirr u hstep_lift
-        exact I_can_subset (by omega) (ih i hg_i hirr_i)
-      -- Enumeration witness.
+      set N := Term.size (Term.node f args)
+      have hN_pos : 0 < N := Term.size_pos _
+      -- IH: each subterm is in I_can at smaller size, lifted to I_can S (N - 1).
+      have hargs_mem : ∀ i, args i ∈ I_can S (N - 1) := fun i => by
+        have hlt : Term.size (args i) < N := Term.size_arg_lt f args i
+        refine I_can_subset (by omega) (ih i (hg i) fun u hstep => ?_)
+        exact Step.irreducible_arg hirr u
+          (Step.lift (R_can_subset hlt.le) hstep)
+      -- Enumeration witness, plus the saturation conditions.
       have hen : Term.node f args ∈
-          termsFromIrreducible S (I_can S (Term.size (Term.node f args) - 1))
-                                 (Term.size (Term.node f args)) := by
-        rw [mem_termsFromIrreducible]
-        refine ⟨rfl, ?_⟩
-        intro f' args' heq i
-        injection heq with hf ha
-        subst hf
-        have ha' : args' = args := eq_of_heq ha
-        subst ha'
-        exact hargs_mem i
+          termsFromIrreducible S (I_can S (N - 1)) N :=
+        mem_termsFromIrreducible.mpr ⟨rfl, fun f' as' heq i => by
+          injection heq with hf ha
+          subst hf
+          obtain rfl : as' = args := eq_of_heq ha
+          exact hargs_mem i⟩
       have hcan : Canonical (Term.node f args) := canonical_of_ground hg
-      have hnsp : ¬ simplifiesWith (R_can S (Term.size (Term.node f args) - 1))
-                                    (Term.node f args) := by
-        apply not_simplifiesWith_of_irreducible
-        intro u hstep
-        exact hirr u (Step.lift (R_can_subset (by omega)) hstep)
-      -- smtMin t = t: otherwise the rule (t, smtMin t) ∈ R_can S (size t) would fire on t.
+      have hnsp : ¬ simplifiesWith (R_can S (N - 1)) (Term.node f args) :=
+        not_simplifiesWith_of_irreducible fun u hstep =>
+          hirr u (Step.lift (R_can_subset (by omega)) hstep)
       have hsmt : smtMin (Term.node f args) = Term.node f args := by
         by_contra hne
-        have hrule : (Term.node f args, smtMin (Term.node f args)) ∈
-                      R_can S (Term.size (Term.node f args)) :=
-          mem_R_can_intro (le_refl _) hen hcan hnsp hne
-        exact hirr _ (Step.root_id hrule)
-      -- Assemble: t ∈ I_can S (size t).
-      have h_eq : Term.size (Term.node f args) = (Term.size (Term.node f args) - 1) + 1 := by
-        omega
-      rw [h_eq, I_can]
-      apply Finset.mem_union_right
-      rw [Finset.mem_filter]
-      refine ⟨?_, hcan, hnsp, hsmt⟩
-      rw [← h_eq]
-      exact hen
+        exact hirr _ (Step.root_id (mem_R_can_intro le_rfl hen hcan hnsp hne))
+      -- Assemble: t ∈ I_can S (N - 1 + 1) = I_can S N.
+      have hsucc : N - 1 + 1 = N := by omega
+      rw [show N = N - 1 + 1 from hsucc.symm, I_can]
+      refine Finset.mem_union_right _ (Finset.mem_filter.mpr ⟨?_, hcan, hnsp, hsmt⟩)
+      rwa [hsucc]
 
 /-- **Enumeration completeness** for ground inputs: every R_can-irreducible
 ground term of size ≤ n is in `I_can S n`.

@@ -29,13 +29,10 @@ variable {S : Signature}
 
 /-- Helper extensionality for argument-indexed term families. -/
 theorem node_ext {f : S.σ} {as bs : Fin (S.arity f) → Term S}
-    (h : ∀ i, as i = bs i) : Term.node f as = Term.node f bs := by
-  have : as = bs := funext h
-  simp [this]
+    (h : ∀ i, as i = bs i) : Term.node f as = Term.node f bs :=
+  congrArg (Term.node f) (funext h)
 
-noncomputable instance : DecidableEq (Term S) := by
-  classical
-  exact inferInstance
+noncomputable instance : DecidableEq (Term S) := Classical.decEq _
 
 /-- Size of a term: variables have size 1, function applications add 1
 to the sum of subterm sizes. -/
@@ -45,16 +42,14 @@ def size : Term S → Nat
 termination_by structural t => t
 
 theorem size_pos (t : Term S) : 1 ≤ size t := by
-  cases t with
-  | var _   => simp [size]
-  | node _ _ => simp [size]
+  cases t <;> simp [size]
 
 theorem size_arg_lt (f : S.σ) (args : Fin (S.arity f) → Term S) (i : Fin (S.arity f)) :
     size (args i) < size (Term.node f args) := by
   rw [size]
-  have hsum : size (args i) ≤ Finset.sum (Finset.univ : Finset (Fin (S.arity f))) (fun j => size (args j)) :=
+  have : size (args i) ≤ ∑ j, size (args j) :=
     Finset.single_le_sum (f := fun j => size (args j))
-      (by intro j _; exact Nat.zero_le _) (Finset.mem_univ i)
+      (fun _ _ => Nat.zero_le _) (Finset.mem_univ i)
   omega
 
 /-- A term is *ground* if it contains no variables. -/

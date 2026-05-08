@@ -41,15 +41,14 @@ variable {S : Signature}
 
 /-- Enumeration of terms of size `n` whose direct subterms (when the
 term is a node) all belong to `subterms`. Variables — which carry no
-node-decomposition — are included whenever `n = 1`. -/
+node-decomposition — are included unconditionally and filtered by
+size, which leaves them only at `n = 1`. -/
 noncomputable def termsFromIrreducible (S : Signature)
-    (subterms : Finset (Term S)) : Nat → Finset (Term S)
-  | 0     => ∅
-  | n + 1 =>
-      (if n = 0 then (Finset.univ : Finset S.V).image Term.var else ∅) ∪
-      (Finset.univ : Finset S.σ).biUnion (fun f =>
-        ((Fintype.piFinset (fun _ : Fin (S.arity f) => subterms)).filter
-            (fun args => Term.size (Term.node f args) = n + 1)).image (Term.node f))
+    (subterms : Finset (Term S)) (n : Nat) : Finset (Term S) :=
+  ((Finset.univ : Finset S.V).image Term.var ∪
+    (Finset.univ : Finset S.σ).biUnion (fun f =>
+      (Fintype.piFinset (fun _ : Fin (S.arity f) => subterms)).image (Term.node f))
+  ).filter (fun t => Term.size t = n)
 
 /-- Specification of `termsFromIrreducible`: a term `t` is in
 `termsFromIrreducible S subterms n` iff its size is `n` and *every*
@@ -60,80 +59,20 @@ theorem mem_termsFromIrreducible {subterms : Finset (Term S)} {n : Nat} {t : Ter
       Term.size t = n ∧
       ∀ (f : S.σ) (args : Fin (S.arity f) → Term S),
         Term.node f args = t → ∀ i, args i ∈ subterms := by
-  match n with
-  | 0 =>
-      constructor
-      · intro h
-        simp [termsFromIrreducible] at h
-      · intro hand
-        exfalso
-        have hsize : Term.size t = 0 := hand.1
-        have hpos : 1 ≤ Term.size t := Term.size_pos t
-        omega
-  | n + 1 =>
-      cases t with
-      | var v =>
-          unfold termsFromIrreducible
-          rw [Finset.mem_union]
-          constructor
-          · rintro (hL | hR)
-            · -- Var disjunct
-              by_cases hn : n = 0
-              · subst hn
-                refine ⟨by simp [Term.size], fun f as heq => by cases heq⟩
-              · rw [if_neg hn] at hL
-                simp at hL
-            · -- Node disjunct: impossible
-              rw [Finset.mem_biUnion] at hR
-              obtain ⟨f, _, hf⟩ := hR
-              rw [Finset.mem_image] at hf
-              obtain ⟨as, _, hnode⟩ := hf
-              cases hnode
-          · rintro ⟨hsize, _⟩
-            left
-            have hn : n = 0 := by simp [Term.size] at hsize; omega
-            rw [if_pos hn]
-            rw [Finset.mem_image]
-            exact ⟨v, Finset.mem_univ _, rfl⟩
-      | node f as =>
-          unfold termsFromIrreducible
-          rw [Finset.mem_union]
-          constructor
-          · rintro (hL | hR)
-            · -- Var disjunct: contradiction
-              by_cases hn : n = 0
-              · rw [if_pos hn] at hL
-                rw [Finset.mem_image] at hL
-                obtain ⟨v, _, hcontra⟩ := hL
-                cases hcontra
-              · rw [if_neg hn] at hL
-                simp at hL
-            · -- Node disjunct
-              rw [Finset.mem_biUnion] at hR
-              obtain ⟨f', _, hf'⟩ := hR
-              rw [Finset.mem_image] at hf'
-              obtain ⟨bs, hargs', hnode⟩ := hf'
-              rw [Finset.mem_filter, Fintype.mem_piFinset] at hargs'
-              obtain ⟨hpi, hsize⟩ := hargs'
-              injection hnode with hf heq
-              subst hf
-              have hbs_eq : bs = as := eq_of_heq heq
-              rw [hbs_eq] at hpi hsize
-              refine ⟨hsize, ?_⟩
-              intro f₀ as₀ heq₀
-              injection heq₀ with hf₀ heq₀'
-              subst hf₀
-              have has_eq : as₀ = as := eq_of_heq heq₀'
-              rw [has_eq]
-              exact hpi
-          · rintro ⟨hsize, hsub⟩
-            right
-            rw [Finset.mem_biUnion]
-            refine ⟨f, Finset.mem_univ _, ?_⟩
-            rw [Finset.mem_image]
-            refine ⟨as, ?_, rfl⟩
-            rw [Finset.mem_filter, Fintype.mem_piFinset]
-            exact ⟨fun i => hsub f as rfl i, hsize⟩
+  simp only [termsFromIrreducible, Finset.mem_filter, Finset.mem_union,
+             Finset.mem_image, Finset.mem_biUnion, Fintype.mem_piFinset,
+             Finset.mem_univ, true_and]
+  refine ⟨fun ⟨h, hsize⟩ => ⟨hsize, fun f' as' heq i => ?_⟩,
+          fun ⟨hsize, h⟩ => ⟨?_, hsize⟩⟩
+  · rcases h with ⟨v, hv⟩ | ⟨f, as, hin, hnode⟩
+    · cases heq.trans hv.symm
+    · injection heq.trans hnode.symm with hf has
+      subst hf
+      obtain rfl : as' = as := eq_of_heq has
+      exact hin i
+  · cases t with
+    | var v => exact .inl ⟨v, rfl⟩
+    | node f as => exact .inr ⟨f, as, fun i => h f as rfl i, rfl⟩
 
 end EnumRules
 

@@ -52,10 +52,8 @@ theorem apply_node (σ : Subst S) {f : S.σ} (args : Fin (S.arity f) → Term S)
 
 theorem apply_id (t : Term S) : apply Subst.id t = t := by
   induction t with
-  | var v => simp [Subst.id]
-  | node f args ih =>
-      show Term.node f (fun i => apply Subst.id (args i)) = Term.node f args
-      congr 1; funext i; exact ih i
+  | var v => rfl
+  | node f args ih => simp [apply_node, ih]
 
 /-! ## Behavioural axioms -/
 
