@@ -15,9 +15,6 @@ Defines the algorithm's data structures:
 * `R_can S n` — synthesised rule set after processing all sizes ≤ n.
 * `I_can S n` — stored canonical irreducibles after processing all
   sizes ≤ n. `R_can` and `I_can` are mutually recursive on size.
-* `ExtStep n` / `ExtStepStar n` — runtime operational steps:
-  rule rewriting (`Step (R_can S n)`) and class lookup
-  (`I_can S n`-anchored).
 
 `CanonicalLayer.lean` proves the algorithm's properties on top of
 these definitions (termination, soundness, ground-input
@@ -93,28 +90,5 @@ mutual
         (termsFromIrreducible S (I_can S n) (n + 1)).filter (fun l =>
           Canonical l ∧ ¬ simplifiesWith (R_can S n) l ∧ smtMin l = l))
 end
-
-/-! ## Runtime operational steps
-
-The algorithm's two operational steps — neither invokes `smtMin` at
-runtime; the SMT work is done at enumeration time when `R_can` and
-`I_can` are constructed. -/
-
-/-- Runtime operational step: either rule rewriting or class lookup. -/
-inductive ExtStep (n : Nat) : Term S → Term S → Prop where
-  /-- Standard rule rewriting (Phase 1). -/
-  | rule {s t : Term S} (h : Step (R_can S n) s t) : ExtStep n s t
-  /-- Equivalence-class step: from `t` to a stored `I_can` member
-  `c ≈ₜ t`, where `t` itself is a substitution-instance of some
-  `m ∈ I_can` (anchoring source and destination in the algorithm's
-  stored irreducibles). -/
-  | class_lookup {t c : Term S} {m : Term S} {σ : Subst S}
-      (hm : m ∈ I_can S n) (h_inst : apply σ m = t)
-      (hc : c ∈ I_can S n) (h_eq : t ≈ₜ c) :
-      ExtStep n t c
-
-/-- Reflexive-transitive closure of `ExtStep n`. -/
-abbrev ExtStepStar (n : Nat) : Term S → Term S → Prop :=
-  Relation.ReflTransGen (ExtStep (S := S) n)
 
 end EnumRules

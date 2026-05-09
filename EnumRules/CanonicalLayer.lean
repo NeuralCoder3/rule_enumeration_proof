@@ -12,7 +12,7 @@ Proves the algorithm's completeness theorem:
   inputs of bounded size, the algorithm reaches the **same**
   representative `c ∈ I_can S n`.
 
-`R_can`, `I_can`, `ExtStep`, `ExtStepStar`, and `Canonical` are
+`R_can`, `I_can`, and `Canonical` are
 defined in `Algorithm.lean`; this file proves their properties.
 
 ## Axioms (2)
@@ -116,7 +116,7 @@ theorem reaches_normal_form_can (n : Nat) (s : Term S) :
       · exact ⟨s, .refl, fun u hu => h ⟨u, hu⟩⟩
 
 /-- **Saturation**: every well-formed canonical reducible term has a
-rule in `R_can` (one-step reduction). -/
+rule in `R_can` (one-step reduction). Not used further. -/
 theorem saturated_can {n : Nat} {l : Term S} (hsize : Term.size l ≤ n)
     (hen : l ∈ termsFromIrreducible S (I_can S (Term.size l - 1)) (Term.size l))
     (hcan : Canonical l)
@@ -124,21 +124,6 @@ theorem saturated_can {n : Nat} {l : Term S} (hsize : Term.size l ≤ n)
     (hne : smtMin l ≠ l) :
     Step (R_can S n) l (smtMin l) :=
   Step.root_id (mem_R_can_intro hsize hen hcan hnsp hne)
-
-/-! ## ExtStep / ExtStepStar properties
-
-The two operational steps (`ExtStep.rule`, `ExtStep.class_lookup`)
-are defined in `Algorithm.lean`. Both preserve `≈ₜ` (rules by
-`rule_equiv_can`; class lookup by hypothesis). A `smtMin` runtime
-step is **not** included — `smtMin t` is recovered as the *unique*
-representative `c ∈ I_can` with `c ≈ₜ t`, found via `class_lookup`.
-
-For *ground* inputs, the source `t` of a `class_lookup` step is itself
-the irreducible normal form `s'`, and `s' ∈ I_can S n` directly (by
-`ground_irreducible_in_I_can`). Then by `I_can_unique_per_class`, two
-ground inputs `s ≈ₜ t` reach the **same** `c = s' = t' ∈ I_can` — the
-common normal form, with no `class_lookup` step needed at all
-(see `complete_common_normal_form`). -/
 
 /-- `I_can` members are smtMin-fixed (built into the I_can filter). -/
 @[aesop safe forward]
@@ -254,14 +239,7 @@ private theorem ground_irreducible_in_I_can_at_size : ∀ (t : Term S),
       rw [show N = N - 1 + 1 from hsucc.symm, I_can]
       exact Finset.mem_union_right _ (Finset.mem_filter.mpr ⟨hsucc ▸ hen, hcan, hnsp, hsmt⟩)
 
-/-- **Enumeration completeness** for ground inputs: every R_can-irreducible
-ground term of size ≤ n is in `I_can S n`.
-
-Proof: by `ground_irreducible_in_I_can_at_size` we get `t ∈ I_can S (size t)`,
-which by `I_can_subset` lifts to `t ∈ I_can S n`. The premise downcast
-uses `R_can_subset` (rules in a smaller bound are a subset of those in a
-larger bound, so non-stepping wrt the larger bound implies non-stepping
-wrt the smaller). -/
+/-- lift I_can size for ground term -/
 theorem ground_irreducible_in_I_can {n : Nat} {t : Term S}
     (hsize : Term.size t ≤ n)
     (hground : Term.IsGround t)
@@ -270,52 +248,6 @@ theorem ground_irreducible_in_I_can {n : Nat} {t : Term S}
   apply ground_irreducible_in_I_can_at_size t hground
   intro u hstep
   exact hirr u (Step.lift (R_can_subset hsize) hstep)
-
-/-- **Algorithm completeness theorem**: every ground R_can-irreducible
-term `t` of size ≤ n has both
-* a *substitution pre-image* in `I_can` — some `m ∈ I_can` with
-  `apply σ m = t`, and
-* a *canonical class representative* in `I_can` — some `c ∈ I_can`
-  with `c ≈ₜ t`.
-
-For ground `t`, both anchors are `t` itself (using `Subst.id` and
-`apply_id` for the source instantiation, and `equiv_refl` for the
-destination equivalence). -/
-theorem I_can_complete_subst {n : Nat} {t : Term S}
-    (hground : Term.IsGround t)
-    (hsize : Term.size t ≤ n)
-    (hirr : ∀ u, ¬ Step (R_can S n) t u) :
-    (∃ m σ, m ∈ I_can S n ∧ apply σ m = t) ∧
-    (∃ c, c ∈ I_can S n ∧ c ≈ₜ t) := by
-  have ht_mem : t ∈ I_can S n := ground_irreducible_in_I_can hsize hground hirr
-  exact ⟨⟨t, Subst.id, ht_mem, apply_id t⟩, ⟨t, ht_mem, equiv_refl t⟩⟩
-
-namespace ExtStep
-
-theorem equiv_of {n : Nat} {s t : Term S} (hst : ExtStep n s t) : s ≈ₜ t := by
-  cases hst with
-  | rule h => exact Step.equiv_of (fun hlr => rule_equiv_can hlr) h
-  | class_lookup _ _ _ h_eq => exact h_eq
-
-end ExtStep
-
-namespace ExtStepStar
-
-theorem equiv_of {n : Nat} {s t : Term S} (hst : ExtStepStar n s t) :
-    s ≈ₜ t := by
-  induction hst with
-  | refl => exact equiv_refl _
-  | tail _ hlast ih => exact equiv_trans ih (ExtStep.equiv_of hlast)
-
-end ExtStepStar
-
-/-- Lift a `StepStar (R_can S n)` path to an `ExtStepStar n` path. -/
-theorem StepStar.toExtStepStar {n : Nat} {s t : Term S}
-    (h : StepStar (R_can S n) s t) : ExtStepStar (S := S) n s t := by
-  induction h with
-  | refl => exact Relation.ReflTransGen.refl
-  | tail _ hlast ih =>
-      exact Relation.ReflTransGen.tail ih (ExtStep.rule hlast)
 
 /-- Rewriting under `R_can` doesn't grow size. -/
 theorem StepStar.size_le {n : Nat} {s t : Term S}
@@ -337,7 +269,8 @@ theorem complete_common_normal_form (n : Nat) {s t : Term S}
     (hs_ground : Term.IsGround s) (ht_ground : Term.IsGround t)
     (hs_size : Term.size s ≤ n) (ht_size : Term.size t ≤ n) (hst : s ≈ₜ t) :
     ∃ c, c ∈ I_can S n ∧
-         ExtStepStar (S := S) n s c ∧ ExtStepStar (S := S) n t c := by
+        StepStar (R_can S n) s c ∧
+        StepStar (R_can S n) t c := by
   obtain ⟨s', hss', hs_irr⟩ := reaches_normal_form_can n s
   obtain ⟨t', htt', ht_irr⟩ := reaches_normal_form_can n t
   have hs'_g := StepStar.preserves_ground hss' hs_ground
@@ -350,6 +283,6 @@ theorem complete_common_normal_form (n : Nat) {s t : Term S}
   have ht_eq := StepStar.equiv_of (fun h => rule_equiv_can h) htt'
   have hs't' : s' = t' := I_can_unique_per_class hs'_g ht'_g hs'_mem ht'_mem
     (equiv_trans (equiv_symm hs_eq) (equiv_trans hst ht_eq))
-  exact ⟨s', hs'_mem, hss'.toExtStepStar, hs't' ▸ htt'.toExtStepStar⟩
+  exact ⟨s', hs'_mem, hss', hs't' ▸ htt'⟩
 
 end EnumRules
