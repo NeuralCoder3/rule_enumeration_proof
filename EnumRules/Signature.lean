@@ -33,8 +33,9 @@ structure Signature where
   fintypeV : Fintype V
   fintypeC : Fintype C
   /-- A linear order on ConstPlaceholders. Used for renaming-orbit
-  enumeration and for the canonical pullback of runtime extension
-  symbols (`σ_of_embed`). -/
+  enumeration and for picking an order embedding `Ext ↪o C` when
+  lifting runtime terms into `Term S Empty` (cardinality bound
+  `|Ext| ≤ |C|`). -/
   linOrderC : LinearOrder C
   arity    : σ → Nat
 

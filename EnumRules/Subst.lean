@@ -37,15 +37,18 @@ The structural definition of `Subst` doesn't enforce these constraints
 in the type; they're invariants maintained by callers. The proofs in
 `CanonicalLayer.lean` that consume substitutions either don't need
 the invariants (e.g., generic `Step.equiv_of`/`kbo_of`) or take them
-as hypotheses (e.g., runtime-preservation in
-`Step.preserves_runtime`, via `smtMin_apply_runtime`).
+as hypotheses (e.g., `Step.preserves_NoVar`, via `smtMin_apply_NoVar`).
 
-## Axioms in this file (2)
+## Axioms in this file (3)
 
 * `kbo_subst` — substitution-monotonicity of `≺ₖ`. Given a rule's
   KBO-decrease at the schema level (`r ≺ₖ l` in `Term S Empty`), every
   instance `apply σ r ≺ₖ apply σ l` (in `Term S Ext`).
-* `equiv_subst` — `≈ₜ` is closed under substitution.
+* `equiv_subst` — `≈ₜ` is closed under substitution (`Term S Empty
+  → Term S Ext`).
+* `equiv_embExt` — `≈ₜ` is invariant under the `Term S Ext → Term S
+  Empty` lift `embExt` for a `Set.InjOn`-style injection. Used by
+  the runtime completeness theorem.
 -/
 
 namespace EnumRules
@@ -118,6 +121,62 @@ theorem apply_comp {Ext : Type} (ρ : Subst S Ext) (σ : Subst S Empty)
   | node f args ih => simp [apply_node, ih]
   | ext e => exact Empty.elim e
 
+/-! ## Inverse substitution for `Term.embExt`
+
+Given a Finset `E : Finset Ext` and `f : Ext → S.C` that is *injective
+on E* (Set.InjOn-style), `Subst.invEmb E f` is the inverse of
+`Term.embExt f` for terms whose ext-leaves lie in `E`. It sends
+`constP c` back to `Term.ext e` when `c = f e` for some `e ∈ E`
+(`e` chosen by classical choice, uniquely determined by injectivity on
+`E`), and otherwise preserves `constP c`. -/
+
+/-- The inverse substitution to `Term.embExt f` restricted to a Finset
+`E`. Variables are preserved (irrelevant for `NoVar` inputs). -/
+noncomputable def Subst.invEmb {Ext : Type} (E : Finset Ext)
+    (f : Ext → S.C) : Subst S Ext where
+  varM    := Term.var
+  constPM := fun c =>
+    open Classical in
+    if h : ∃ e ∈ E, f e = c then
+      Term.ext (Classical.choose h)
+    else
+      Term.constP c
+
+/-- For `e ∈ E`, `(invEmb E f).constPM (f e) = Term.ext e` provided
+`f` is injective on `E`. -/
+theorem invEmb_constPM_image {Ext : Type} {E : Finset Ext} {f : Ext → S.C}
+    (hinj : ∀ e₁ ∈ E, ∀ e₂ ∈ E, f e₁ = f e₂ → e₁ = e₂)
+    {e : Ext} (he : e ∈ E) :
+    (Subst.invEmb E f).constPM (f e) = Term.ext e := by
+  have hex : ∃ e' ∈ E, f e' = f e := ⟨e, he, rfl⟩
+  show (open Classical in
+    if h : ∃ e' ∈ E, f e' = f e then Term.ext (Classical.choose h)
+    else Term.constP (f e)) = Term.ext e
+  rw [dif_pos hex]
+  congr 1
+  obtain ⟨hmem, hfeq⟩ := Classical.choose_spec hex
+  exact hinj _ hmem _ he hfeq
+
+/-- `apply (Subst.invEmb E f) ∘ Term.embExt f` is the identity on
+`IsRuntime` terms whose ext-leaves lie in `E`, provided `f` is
+injective on `E`. -/
+theorem apply_invEmb_embExt {Ext : Type} [DecidableEq Ext]
+    {E : Finset Ext} {f : Ext → S.C}
+    (hinj : ∀ e₁ ∈ E, ∀ e₂ ∈ E, f e₁ = f e₂ → e₁ = e₂)
+    {t : Term S Ext} (ht : Term.IsRuntime t) (hE : t.usedExt ⊆ E) :
+    apply (Subst.invEmb E f) (Term.embExt f t) = t := by
+  induction t with
+  | var v       => exact ht.elim
+  | constP c    => exact ht.elim
+  | node f' args ih =>
+      rw [Term.embExt_node, apply_node]
+      refine Term.node_ext fun i => ih i (ht i) ?_
+      exact subset_trans (Term.usedExt_arg_subset args i) hE
+  | ext e       =>
+      have he : e ∈ E := hE (by simp [Term.usedExt_ext])
+      rw [Term.embExt_ext, apply_constP]
+      exact invEmb_constPM_image hinj he
+
 /-! ## Behavioural axioms -/
 
 /-- Substitution-monotonicity of `≺ₖ`: a rule's schema-level decrease
@@ -131,40 +190,18 @@ axiom equiv_subst {Ext : Type} {s t : Term S Empty}
     (h : s ≈ₜ t) (σ : Subst S Ext) :
     apply σ s ≈ₜ apply σ t
 
-/-! ## Canonical substitution from an order embedding
-
-Given an order embedding `embed : Ext ↪o S.C` (only available when
-`|Ext| ≤ |S.C|`), the canonical "rename constPs along embed" runtime
-substitution `σ_of_embed embed`:
-
-* On variables: identity-ish (irrelevant — we apply only to terms
-  with `NoVar`, so `varM` is never invoked).
-* On ConstPlaceholders: `σ_of_embed.constPM c = e` when `embed e = c`,
-  i.e., maps each `embed e ∈ S.C` back to `e ∈ Ext`. For `c` outside
-  `embed`'s image, returns an arbitrary `Ext` element.
-
-This substitution's effect is: `Term.constP (embed e)` becomes
-`Term.ext e` after `apply`, so a construction-time template with
-constP-leaves in `embed`'s image becomes the corresponding runtime
-term with ext-leaves.
-
-For terms whose constPs lie in `embed`'s image, the substitution is
-"essentially a renaming" — an order-preserving bijection. SMT
-equivalence and KBO commute with such renamings (see
-`smtMin_commutes_embed` in `CanonicalLayer.lean`). -/
-section OfEmbed
-variable {Ext : Type} [Fintype Ext] [DecidableEq Ext] [LinearOrder Ext]
-  [Inhabited Ext]
-
-/-- The canonical runtime substitution from an order embedding. -/
-noncomputable def Subst.of_embed (embed : Ext ↪o S.C) : Subst S Ext where
-  varM := fun _ => Term.ext default  -- arbitrary (won't be used on NoVar input)
-  constPM := fun c =>
-    if h : ∃ e : Ext, embed e = c then
-      Term.ext (Classical.choose h)
-    else
-      Term.ext default
-
-end OfEmbed
+/-- ≈ₜ is invariant under the `embExt` renaming: replacing each
+ext-leaf `e` by `constP (f e)` preserves equivalence, provided `f`
+is injective on the union of `s.usedExt` and `t.usedExt`. The
+semantic content: SMT treats ext-leaves and constP-leaves as
+uninterpreted constants of the same kind, and a consistent injective
+relabelling is invisible to the theory. -/
+axiom equiv_embExt {Ext : Type} [DecidableEq Ext]
+    {s t : Term S Ext} (hs : Term.IsRuntime s) (ht : Term.IsRuntime t)
+    (f : Ext → S.C)
+    (hinj : ∀ e₁ ∈ s.usedExt ∪ t.usedExt, ∀ e₂ ∈ s.usedExt ∪ t.usedExt,
+              f e₁ = f e₂ → e₁ = e₂)
+    (heq : s ≈ₜ t) :
+    Term.embExt f s ≈ₜ Term.embExt f t
 
 end EnumRules

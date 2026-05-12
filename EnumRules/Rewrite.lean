@@ -161,6 +161,16 @@ theorem lift {R₁ R₂ : RuleSet S} (hR : R₁ ⊆ R₂) {s t : Term S Ext}
   | tail _ hstep ih =>
     exact Relation.ReflTransGen.tail ih (Step.lift hR hstep)
 
+/-- Substitution-stability of `StepStar`: a construction-time rewrite
+sequence at `Ext = Empty` lifts under any `σ : Subst S Ext` to a runtime
+rewrite sequence at `Ext`. -/
+theorem subst {R : RuleSet S} {s t : Term S Empty}
+    (h : StepStar (Ext := Empty) R s t) (σ : Subst S Ext) :
+    StepStar R (apply σ s) (apply σ t) := by
+  induction h with
+  | refl => exact Relation.ReflTransGen.refl
+  | tail _ hstep ih => exact Relation.ReflTransGen.tail ih (hstep.subst σ)
+
 end StepStar
 
 /-- `simplifiesWith R t` holds when `t` can be rewritten by `R` to a term

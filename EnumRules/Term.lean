@@ -97,4 +97,81 @@ theorem NoVar_of_IsRuntime {t : Term S Ext} : IsRuntime t → NoVar t := by
       intro h j; exact ih j (h j)
   | ext e       => intro _; trivial
 
+/-- The Finset of extension symbols appearing in a term. Used to
+state cardinality constraints (e.g., `|usedExt s ∪ usedExt t| ≤ |S.C|`
+to lift `Term S Ext` terms into `Term S Empty`). -/
+def usedExt [DecidableEq Ext] : Term S Ext → Finset Ext
+  | .var _       => ∅
+  | .constP _    => ∅
+  | .node _ args =>
+      (Finset.univ : Finset (Fin _)).biUnion (fun i => usedExt (args i))
+  | .ext e       => {e}
+termination_by structural t => t
+
+@[simp] theorem usedExt_var [DecidableEq Ext] (v : S.V) :
+    usedExt (Term.var (Ext := Ext) v) = ∅ := rfl
+
+@[simp] theorem usedExt_constP [DecidableEq Ext] (c : S.C) :
+    usedExt (Term.constP (Ext := Ext) c) = ∅ := rfl
+
+@[simp] theorem usedExt_node [DecidableEq Ext] {f : S.σ}
+    (args : Fin (S.arity f) → Term S Ext) :
+    usedExt (Term.node f args) =
+      (Finset.univ : Finset (Fin _)).biUnion (fun i => usedExt (args i)) := rfl
+
+@[simp] theorem usedExt_ext [DecidableEq Ext] (e : Ext) :
+    usedExt (Term.ext (S := S) e) = {e} := rfl
+
+theorem usedExt_arg_subset [DecidableEq Ext] {f : S.σ}
+    (args : Fin (S.arity f) → Term S Ext) (i : Fin (S.arity f)) :
+    usedExt (args i) ⊆ usedExt (Term.node f args) := by
+  intro e he
+  simp only [usedExt_node, Finset.mem_biUnion, Finset.mem_univ, true_and]
+  exact ⟨i, he⟩
+
+/-- Embed a `Term S Ext` into `Term S Empty` by replacing each `ext e`
+leaf with `constP (f e)`. Variables and ConstPlaceholders are preserved.
+For `IsRuntime` input, the result has constP-leaves drawn from `f`'s
+image and no variables. -/
+def embExt (f : Ext → S.C) : Term S Ext → Term S Empty
+  | .var v       => .var v
+  | .constP c    => .constP c
+  | .node f' args => .node f' (fun i => embExt f (args i))
+  | .ext e       => .constP (f e)
+termination_by structural t => t
+
+@[simp] theorem embExt_var (f : Ext → S.C) (v : S.V) :
+    embExt f (Term.var (Ext := Ext) v) = Term.var v := rfl
+
+@[simp] theorem embExt_constP (f : Ext → S.C) (c : S.C) :
+    embExt f (Term.constP (Ext := Ext) c) = Term.constP c := rfl
+
+@[simp] theorem embExt_node (f : Ext → S.C) {f' : S.σ}
+    (args : Fin (S.arity f') → Term S Ext) :
+    embExt f (Term.node f' args) = Term.node f' (fun i => embExt f (args i)) := rfl
+
+@[simp] theorem embExt_ext (f : Ext → S.C) (e : Ext) :
+    embExt f (Term.ext (S := S) e) = Term.constP (f e) := rfl
+
+/-- `embExt` preserves term size. -/
+theorem size_embExt (f : Ext → S.C) (t : Term S Ext) :
+    size (embExt f t) = size t := by
+  induction t with
+  | var v       => rfl
+  | constP c    => rfl
+  | node f' args ih =>
+      simp only [embExt_node, size]
+      congr 1
+      exact Finset.sum_congr rfl (fun i _ => ih i)
+  | ext e       => rfl
+
+/-- `embExt` preserves `NoVar`. -/
+theorem NoVar_embExt (f : Ext → S.C) {t : Term S Ext} (h : NoVar t) :
+    NoVar (embExt f t) := by
+  induction t with
+  | var v       => exact h.elim
+  | constP c    => trivial
+  | node f' args ih => intro i; exact ih i (h i)
+  | ext e       => trivial
+
 end Term

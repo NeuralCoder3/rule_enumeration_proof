@@ -3,42 +3,47 @@ import EnumRules.Algorithm
 open scoped Classical
 
 /-
-# Algorithm correctness: construction-saturation + runtime bridge
+# Algorithm correctness: construction-saturation + common normal form
 
 ## Role
-Proves the runtime completeness theorem:
+Proves two completeness theorems:
 
-* `complete_common_normal_form` — for *runtime-ground* `≈ₜ`-equivalent
-  inputs `s, t : Term S Ext` of size ≤ n, both reach the same
-  irreducible normal form `c : Term S Ext` via rule rewriting alone.
+* `complete_common_normal_form` (construction level) — for
+  `≈ₜ`-equivalent `Term S Empty` inputs `s, t` with `NoVar` and
+  size ≤ n, both reach the same irreducible normal form `c` via
+  rule rewriting.
 
-The proof has two parts:
+* `complete_runtime` (runtime level) — for `≈ₜ`-equivalent runtime
+  `Term S Ext` inputs `s, t` with `IsRuntime`, size ≤ n, and with
+  `(s.usedExt ∪ t.usedExt).card ≤ |S.C|`, both reach a common
+  rewrite-end-point via `R_can` rewriting on `Term S Ext`. The proof
+  lifts to `Term S Empty` via an injection `↑E ↪ S.C` (from the
+  cardinality bound, via `embExt`), invokes the construction-level
+  theorem, and pushes the rewrites back via `StepStar.subst`.
 
-1. **Construction-time saturation** (`construction_saturation`, proved):
-   for `c : Term S Empty` with `NoVar`, R_can-irreducible at size ≤ n,
-   we have `smtMin c = c`. This is the same argument used in the old
-   ground proof, lifted to the `NoVar` predicate.
-
-2. **Runtime bridge** (`runtime_saturation`, proved): for `t : Term S Ext`
-   runtime-ground, R_can-irreducible at size ≤ n, we have `smtMin t = t`.
-   Proved by pulling `t` back to a construction-time `c` via an order
-   embedding `embed : Ext ↪o S.C`, applying construction-saturation to
-   `c`, and using `smtMin_commutes_embed` to push the result forward.
+The proof of `complete_common_normal_form` rests on
+**construction-saturation** (`construction_saturation`, proved as a
+theorem): for `c : Term S Empty` with `NoVar`, R_can-irreducible at
+size ≤ n, we have `smtMin c = c`. The structural induction
+`construction_irreducible_in_I_can_at_size` shows that every `NoVar`
+irreducible term lies in `I_can`, from which `smtMin`-fixedness is
+immediate.
 
 ## Axioms (2)
-* `smtMin_apply_runtime` — `smtMin` doesn't introduce extra var or
-  constP usage (used in `Step.preserves_runtime`).
-* `smtMin_commutes_embed` — `smtMin` commutes with the canonical
-  "order-preserving renaming" `σ_of_embed`. The semantic content:
-  SMT classes and KBO ordering are isomorphic under an
-  order-preserving relabelling of ConstPlaceholders and runtime
-  extension symbols.
+* `smtMin_apply_NoVar` — `smtMin` doesn't introduce S.V variables
+  (used in `Step.preserves_NoVar`).
+* `canonical_of_NoVar` — `NoVar` terms satisfy the `Canonical` filter
+  (per-orbit selector, doesn't affect soundness).
+
+The runtime theorem also depends on `equiv_embExt` (in `Subst.lean`).
 
 ## Theorems
-* `Step.preserves_runtime` / `StepStar.preserves_runtime`.
-* `construction_saturation` — proved (was an axiom).
-* `runtime_saturation` (i.e., the old `smtMin_irreducible_fixed`) — proved (was an axiom).
-* `complete_common_normal_form`.
+* `Step.preserves_NoVar` / `StepStar.preserves_NoVar`.
+* `construction_irreducible_in_I_can_at_size` (private) /
+  `construction_irreducible_in_I_can`.
+* `construction_saturation` — proved.
+* `complete_common_normal_form` — proved.
+* `complete_runtime` — proved.
 -/
 
 namespace EnumRules
@@ -122,51 +127,38 @@ theorem I_can_smtMin_fixed {n : Nat} {c : Term S Empty} (hc : c ∈ I_can S n) :
       rw [I_can, Finset.mem_union] at hc
       aesop
 
-/-! ## Runtime convention: behavioural axioms
+/-! ## Behavioural axioms
 
-`smtMin_apply_runtime` says `smtMin` doesn't grow var/constP usage —
-needed for `Step.preserves_runtime`.
+`smtMin_apply_NoVar` says `smtMin` doesn't introduce S.V variables.
+This is the only behavioural axiom about `smtMin` needed (apart from
+`smtMin_equiv` / `smtMin_min` / `smtMin_le` from `Oracle.lean`). -/
 
-`smtMin_commutes_embed` says `smtMin` commutes with the canonical
-order-preserving renaming `σ_of_embed`. This is the bridging axiom
-that lifts construction-saturation to runtime-saturation. -/
+/-- `smtMin` doesn't introduce S.V variables: if `apply σ l` has no
+variable, neither does `apply σ (smtMin l)`. -/
+axiom smtMin_apply_NoVar {l : Term S Empty} {σ : Subst S Empty}
+    (h : Term.NoVar (apply σ l)) : Term.NoVar (apply σ (smtMin l))
 
-/-- `smtMin` doesn't introduce extra var/constP usage: if a
-substitution-instance of `l` is runtime, the same substitution applied
-to `smtMin l` is runtime too. -/
-axiom smtMin_apply_runtime {Ext : Type} {l : Term S Empty} {σ : Subst S Ext}
-    (h : Term.IsRuntime (apply σ l)) : Term.IsRuntime (apply σ (smtMin l))
+/-! ## Step.preserves_NoVar — Step keeps the NoVar property -/
 
-/-- `smtMin` commutes with the canonical order-preserving renaming
-from an embedding `embed : Ext ↪o S.C`. Semantically: SMT classes
-and KBO are isomorphic under an order-preserving substitution of
-ConstPlaceholders by extension symbols. -/
-axiom smtMin_commutes_embed
-    {Ext : Type} [Fintype Ext] [DecidableEq Ext] [LinearOrder Ext] [Inhabited Ext]
-    (embed : Ext ↪o S.C) (c : Term S Empty) :
-  apply (Subst.of_embed embed) (smtMin c) = smtMin (apply (Subst.of_embed embed) c)
-
-/-! ## Step.preserves_runtime — keeps the runtime structure -/
-
-/-- `Step (R_can S n)` preserves runtime-groundness. -/
-theorem Step.preserves_runtime {Ext : Type} {n : Nat} {s t : Term S Ext}
-    (h : Step (R_can S n) s t) (hg : Term.IsRuntime s) : Term.IsRuntime t := by
+/-- `Step (R_can S n)` preserves the `NoVar` property. -/
+theorem Step.preserves_NoVar {n : Nat} {s t : Term S Empty}
+    (h : Step (R_can S n) s t) (hg : Term.NoVar s) : Term.NoVar t := by
   induction h with
   | @root l r σ hmem =>
       obtain ⟨rfl, _⟩ := mem_R_can_props hmem
-      exact smtMin_apply_runtime hg
+      exact smtMin_apply_NoVar hg
   | @ctx f as bs i hstep hrest ih =>
       intro j
       by_cases hj : j = i
       · exact hj ▸ ih (hg i)
       · exact (hrest j hj).symm ▸ hg j
 
-/-- `StepStar (R_can S n)` preserves runtime-groundness. -/
-theorem StepStar.preserves_runtime {Ext : Type} {n : Nat} {s t : Term S Ext}
-    (h : StepStar (R_can S n) s t) (hg : Term.IsRuntime s) : Term.IsRuntime t := by
+/-- `StepStar (R_can S n)` preserves the `NoVar` property. -/
+theorem StepStar.preserves_NoVar {n : Nat} {s t : Term S Empty}
+    (h : StepStar (R_can S n) s t) (hg : Term.NoVar s) : Term.NoVar t := by
   induction h with
   | refl => exact hg
-  | tail _ hstep ih => exact Step.preserves_runtime hstep ih
+  | tail _ hstep ih => exact Step.preserves_NoVar hstep ih
 
 /-- Rewriting under `R_can` doesn't grow size. -/
 theorem StepStar.size_le {Ext : Type} {n : Nat} {s t : Term S Ext}
@@ -312,129 +304,95 @@ theorem construction_saturation {n : Nat} {c : Term S Empty}
     construction_irreducible_in_I_can hsize hg hirr
   exact I_can_smtMin_fixed hc_mem
 
-/-! ## Runtime saturation via embed -/
+/-! ## Common normal form theorem (construction level, `Term S Empty`) -/
 
-section RuntimeSaturation
-variable {Ext : Type} [Fintype Ext] [DecidableEq Ext] [LinearOrder Ext]
-  [Inhabited Ext]
-
-/-- Pull a runtime term back to a construction-time template along an
-order embedding. -/
-def pullback (embed : Ext ↪o S.C) : Term S Ext → Term S Empty
-  | .var v       => .var v
-  | .constP c    => .constP c
-  | .node f args => .node f (fun i => pullback embed (args i))
-  | .ext e       => .constP (embed e)
-termination_by structural t => t
-
-/-- The pullback inverts `apply (Subst.of_embed embed)` on runtime
-terms: ext-leaves of `t` are replaced by `constP (embed e)` in the
-pullback, and applying `σ_of_embed` sends each `constP (embed e)` back
-to `Term.ext e` (using injectivity of `embed`). -/
-theorem apply_pullback {embed : Ext ↪o S.C} {t : Term S Ext}
-    (h : Term.IsRuntime t) :
-    apply (Subst.of_embed embed) (pullback embed t) = t := by
-  induction t with
-  | var v       => exact h.elim
-  | constP c    => exact h.elim
-  | node f args ih =>
-      simp only [pullback, apply_node]
-      exact Term.node_ext fun j => ih j (h j)
-  | ext e       =>
-      show apply (Subst.of_embed embed) (Term.constP (embed e)) = Term.ext e
-      simp only [apply_constP]
-      show (Subst.of_embed embed).constPM (embed e) = Term.ext e
-      unfold Subst.of_embed
-      simp only
-      have hex : ∃ e' : Ext, embed e' = embed e := ⟨e, rfl⟩
-      rw [dif_pos hex]
-      congr 1
-      exact embed.injective (Classical.choose_spec hex)
-
-/-- Pullback of a runtime term has `NoVar`. -/
-theorem NoVar_pullback {embed : Ext ↪o S.C} {t : Term S Ext}
-    (h : Term.IsRuntime t) : Term.NoVar (pullback embed t) := by
-  induction t with
-  | var v       => exact h.elim
-  | constP c    => exact h.elim
-  | node f args ih =>
-      intro j; exact ih j (h j)
-  | ext e       => trivial
-
-/-- Pullback preserves size. -/
-theorem size_pullback {embed : Ext ↪o S.C} (t : Term S Ext) :
-    Term.size (pullback embed t) = Term.size t := by
-  induction t with
-  | var v       => rfl
-  | constP c    => rfl
-  | node f args ih =>
-      simp only [pullback, Term.size]
-      congr 1
-      exact Finset.sum_congr rfl fun i _ => ih i
-  | ext e       => rfl
-
-/-- **Runtime saturation**: a runtime-ground term that is
-R_can-irreducible at size ≤ n is its own `smtMin`. -/
-theorem runtime_saturation (embed : Ext ↪o S.C) {n : Nat} {t : Term S Ext}
-    (hsize : Term.size t ≤ n)
-    (hg : Term.IsRuntime t)
-    (hirr : ∀ u, ¬ Step (R_can S n) t u) : smtMin t = t := by
-  set c := pullback embed t with hc_def
-  have h_apply : apply (Subst.of_embed embed) c = t := by
-    rw [hc_def]; exact apply_pullback hg
-  have hc_g : Term.NoVar c := NoVar_pullback hg
-  have hc_size : Term.size c ≤ n := by rw [hc_def, size_pullback]; exact hsize
-  -- c is construction-irreducible: any step on c lifts to a step on t via
-  -- Step.subst, contradicting hirr.
-  have hc_irr : ∀ u, ¬ Step (R_can S n) c u := by
-    intro u hu
-    have h_lift : Step (R_can S n) (apply (Subst.of_embed embed) c)
-                                    (apply (Subst.of_embed embed) u) :=
-      Step.subst hu (Subst.of_embed embed)
-    rw [h_apply] at h_lift
-    exact hirr _ h_lift
-  -- By construction-saturation, smtMin c = c.
-  have hc_sat : smtMin c = c := construction_saturation hc_size hc_g hc_irr
-  -- Push through embed: smtMin t = apply σ_embed (smtMin c) = apply σ_embed c = t.
-  calc smtMin t = smtMin (apply (Subst.of_embed embed) c) := by rw [h_apply]
-    _ = apply (Subst.of_embed embed) (smtMin c) := (smtMin_commutes_embed embed c).symm
-    _ = apply (Subst.of_embed embed) c := by rw [hc_sat]
-    _ = t := h_apply
-
-end RuntimeSaturation
-
-/-! ## Runtime common normal form -/
-
-/-- **Common normal form theorem** (runtime): for any pair of runtime,
-`≈ₜ`-equivalent terms `s, t : Term S Ext` of size ≤ n, both reach the
-same irreducible runtime term via rule rewriting alone. -/
+/-- **Common normal form theorem at `Term S Empty`**: for any pair of
+`≈ₜ`-equivalent `Term S Empty` terms with no S.V variables (`NoVar`)
+and size ≤ n, both reach the same irreducible normal form via rule
+rewriting alone. -/
 theorem complete_common_normal_form
-    {Ext : Type} [Fintype Ext] [DecidableEq Ext] [LinearOrder Ext] [Inhabited Ext]
-    (embed : Ext ↪o S.C) (n : Nat) {s t : Term S Ext}
-    (hs_runtime : Term.IsRuntime s) (ht_runtime : Term.IsRuntime t)
+    (n : Nat) {s t : Term S Empty}
+    (hs_NoVar : Term.NoVar s) (ht_NoVar : Term.NoVar t)
     (hs_size : Term.size s ≤ n) (ht_size : Term.size t ≤ n) (hst : s ≈ₜ t) :
-    ∃ c, Term.IsRuntime c ∧
+    ∃ c, Term.NoVar c ∧
          StepStar (R_can S n) s c ∧
          StepStar (R_can S n) t c := by
   obtain ⟨s', hss', hs_irr⟩ := reaches_normal_form_can n s
   obtain ⟨t', htt', ht_irr⟩ := reaches_normal_form_can n t
-  have hs'_g := StepStar.preserves_runtime hss' hs_runtime
-  have ht'_g := StepStar.preserves_runtime htt' ht_runtime
+  have hs'_g := StepStar.preserves_NoVar hss' hs_NoVar
+  have ht'_g := StepStar.preserves_NoVar htt' ht_NoVar
   have hs'_size := le_trans (StepStar.size_le hss') hs_size
   have ht'_size := le_trans (StepStar.size_le htt') ht_size
   have hs_eq := StepStar.equiv_of (fun h => rule_equiv_can h) hss'
   have ht_eq := StepStar.equiv_of (fun h => rule_equiv_can h) htt'
   have hst' : s' ≈ₜ t' :=
     equiv_trans (equiv_symm hs_eq) (equiv_trans hst ht_eq)
-  have hsm_s : smtMin s' = s' := runtime_saturation embed hs'_size hs'_g hs_irr
-  have hsm_t : smtMin t' = t' := runtime_saturation embed ht'_size ht'_g ht_irr
+  have hsm_s : smtMin s' = s' := construction_saturation hs'_size hs'_g hs_irr
+  have hsm_t : smtMin t' = t' := construction_saturation ht'_size ht'_g ht_irr
   have h_eq : smtMin s' = smtMin t' :=
-    smtMin_resp (hsm_s.symm ▸ Term.NoVar_of_IsRuntime hs'_g)
-                (hsm_t.symm ▸ Term.NoVar_of_IsRuntime ht'_g) hst'
+    smtMin_resp (hsm_s.symm ▸ hs'_g) (hsm_t.symm ▸ ht'_g) hst'
   have hs't' : s' = t' := by
     calc s' = smtMin s' := hsm_s.symm
       _ = smtMin t' := h_eq
       _ = t' := hsm_t
   exact ⟨s', hs'_g, hss', hs't' ▸ htt'⟩
+
+/-! ## Runtime common normal form theorem
+
+For runtime terms `s, t : Term S Ext` with arbitrary `Ext`, if the
+number of distinct ext-leaves used in `s` and `t` together is at
+most `|S.C|`, both reach a common normal form via runtime rewriting.
+
+The proof embeds each ext-leaf as a fresh ConstPlaceholder via an
+injection `↑(s.usedExt ∪ t.usedExt) ↪ S.C`, invokes the construction-
+level theorem at `Term S Empty`, and pushes the rewrite sequence
+back to `Term S Ext` via `StepStar.subst` along the inverse
+substitution. -/
+
+/-- **Common normal form theorem at `Term S Ext` (runtime)**: for any
+pair of `≈ₜ`-equivalent runtime terms whose distinct ext-leaves fit
+into `|S.C|`, both reach the same rewrite-end-point via `R_can`. -/
+theorem complete_runtime
+    {Ext : Type} [DecidableEq Ext] [Nonempty S.C]
+    (n : Nat) {s t : Term S Ext}
+    (hs : Term.IsRuntime s) (ht : Term.IsRuntime t)
+    (hs_size : Term.size s ≤ n) (ht_size : Term.size t ≤ n)
+    (hcard : (s.usedExt ∪ t.usedExt).card ≤ Fintype.card S.C)
+    (hst : s ≈ₜ t) :
+    ∃ c, StepStar (R_can S n) s c ∧ StepStar (R_can S n) t c := by
+  set E := s.usedExt ∪ t.usedExt with hE_def
+  have hE_card : Fintype.card (↑E : Type _) ≤ Fintype.card S.C := by
+    simpa [Fintype.card_coe] using hcard
+  obtain ⟨g⟩ : Nonempty (↑E ↪ S.C) := Function.Embedding.nonempty_of_card_le hE_card
+  let f : Ext → S.C := fun e =>
+    open Classical in
+    if h : e ∈ E then g ⟨e, h⟩ else Classical.arbitrary S.C
+  have hf_E : ∀ e (he : e ∈ E), f e = g ⟨e, he⟩ := by
+    intro e he
+    simp [f, he]
+  have hf_inj : ∀ e₁ ∈ E, ∀ e₂ ∈ E, f e₁ = f e₂ → e₁ = e₂ := by
+    intro e₁ he₁ e₂ he₂ heq
+    rw [hf_E _ he₁, hf_E _ he₂] at heq
+    exact Subtype.mk.inj (g.injective heq)
+  -- Lift to Term S Empty.
+  set s' := Term.embExt f s with hs'_def
+  set t' := Term.embExt f t with ht'_def
+  have hs'_NoVar : Term.NoVar s' := Term.NoVar_embExt f (Term.NoVar_of_IsRuntime hs)
+  have ht'_NoVar : Term.NoVar t' := Term.NoVar_embExt f (Term.NoVar_of_IsRuntime ht)
+  have hs'_size : Term.size s' ≤ n := by rw [hs'_def, Term.size_embExt]; exact hs_size
+  have ht'_size : Term.size t' ≤ n := by rw [ht'_def, Term.size_embExt]; exact ht_size
+  have hst' : s' ≈ₜ t' := equiv_embExt hs ht f hf_inj hst
+  -- Apply the construction-level theorem.
+  obtain ⟨c', _, hsc', htc'⟩ :=
+    complete_common_normal_form n hs'_NoVar ht'_NoVar hs'_size ht'_size hst'
+  -- Push the rewrites back via the inverse substitution.
+  let σ := Subst.invEmb E f
+  have hs_inv : apply σ s' = s :=
+    apply_invEmb_embExt hf_inj hs (Finset.subset_union_left)
+  have ht_inv : apply σ t' = t :=
+    apply_invEmb_embExt hf_inj ht (Finset.subset_union_right)
+  refine ⟨apply σ c', ?_, ?_⟩
+  · rw [← hs_inv]; exact StepStar.subst hsc' σ
+  · rw [← ht_inv]; exact StepStar.subst htc' σ
 
 end EnumRules
