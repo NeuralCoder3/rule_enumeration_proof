@@ -258,13 +258,13 @@ theorem StepStar.size_le {n : Nat} {s t : Term S}
 
 /-- **Common normal form theorem**: for any pair of ground,
 `≈ₜ`-equivalent terms of size ≤ n, both reach **the same** term
-`c ∈ I_can S n` via the algorithm's operational steps.
+`c ∈ I_can S n` by rule rewriting alone.
 
 Proof: Phase 1 reaches `R_can`-irreducibles `s', t'` (still ground by
 `StepStar.preserves_ground`) with `s' ≈ₜ t'`. By
 `ground_irreducible_in_I_can`, both `s'` and `t'` are in `I_can S n`.
 By `I_can_unique_per_class`, `s' = t'` — that's the common normal
-form, reached by Phase-1 rule rewriting alone. -/
+form. No class-lookup or other extra step is needed. -/
 theorem complete_common_normal_form (n : Nat) {s t : Term S}
     (hs_ground : Term.IsGround s) (ht_ground : Term.IsGround t)
     (hs_size : Term.size s ≤ n) (ht_size : Term.size t ≤ n) (hst : s ≈ₜ t) :

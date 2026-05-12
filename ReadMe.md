@@ -115,15 +115,17 @@ substitution.
 
 ### Normalisation (runtime)
 
-Inputs are S.V-ground. Two operational steps (`ExtStep`):
+Inputs are S.V-ground. The only operational step at runtime is rule
+rewriting `Step (R_can S n)` — fire a synthesised rule `(l, r) ∈ R_can`
+under any substitution σ matching `l` against a subterm. Phase 1
+rewrites until an `R_can`-irreducible normal form is reached, and
+that form is already in `I_can` (by `ground_irreducible_in_I_can`).
 
-1. **Rule rewriting** (`Step (R_can S n)`) — fire a synthesised rule
-   `(l, r) ∈ R_can` under any substitution σ matching `l` against a
-   subterm. Phase 1; reaches an `R_can`-irreducible normal form.
-2. **Class lookup** (`ExtStep.class_lookup`) — replace the irreducible
-   normal form `t'` with its stored class representative `c ∈ I_can`
-   (decided at enumeration time). For ground inputs this is *trivial*:
-   `t' ∈ I_can` directly (see `complete_common_normal_form`).
+For *ground* inputs this works out of the box: equivalent inputs of
+bounded size reach the same `c ∈ I_can` via rule rewriting alone (no
+extra class-lookup step needed). For non-ground inputs the framework
+makes no claim — that case would need an SMT-driven class-lookup
+step, intentionally excluded from the present scope.
 
 No `smtMin` call happens at runtime — the SMT work is all paid at
 enumeration time.
@@ -134,7 +136,7 @@ enumeration time.
 
 ```
 IsGround s ∧ IsGround t ∧ size s ≤ n ∧ size t ≤ n ∧ s ≈ₜ t →
-  ∃ c, c ∈ I_can S n ∧ ExtStepStar n s c ∧ ExtStepStar n t c
+  ∃ c, c ∈ I_can S n ∧ StepStar (R_can S n) s c ∧ StepStar (R_can S n) t c
 ```
 
 For ground `≈ₜ`-equivalent inputs of bounded size, the algorithm
@@ -210,8 +212,7 @@ Rewrite.lean        Step / StepStar with substitution-based root;
                     not_simplifiesWith_of_irreducible
 Algorithm.lean      termsFromIrreducible (concrete noncomputable def),
                     mem_termsFromIrreducible (theorem);
-                    Canonical (opaque); R_can, I_can (mutual);
-                    ExtStep, ExtStepStar
+                    Canonical (opaque); R_can, I_can (mutual)
 CanonicalLayer.lean canonical_of_ground, smtMin_apply_ground (axioms);
                     R_can/I_can structural lemmas (subset, mem_R_can_*);
                     rule_equiv_can, rule_kbo_can, terminates_can;
