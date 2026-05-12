@@ -2,58 +2,42 @@ import EnumRules.Equiv
 import EnumRules.Kbo
 
 /-
-# SMT oracle: KBO-minimal representative of the ≈ₜ-class
+# SMT oracle (parameterised by extension)
 
 ## Role
 `smtMin t` is the SMT oracle's choice of `≺ₖ`-minimum element in
-`t`'s `≈ₜ`-class. With `kbo_total` (ground-only), the minimum is
-unique per class on ground inputs, giving `smtMin_resp` for ground
-terms — Phase 2 lookup correctness.
+`t`'s `≈ₜ`-class. Indexed by the runtime extension type `Ext`.
 
-## Axioms (3)
+## Axioms (3) — each is a family indexed by `Ext`
 * `smtMin_equiv` — `smtMin t ≈ₜ t`.
 * `smtMin_min` — no `≈ₜ`-equivalent term is `≺ₖ`-smaller than `smtMin t`.
-* `smtMin_le` — `smtMin t = t ∨ smtMin t ≺ₖ t`. Holds for any
-  well-behaved SMT oracle (returns either input or a strictly
-  KBO-smaller equivalent). Previously derived from a uniform
-  `kbo_total`; now an axiom because `kbo_total` is restricted to
-  ground terms (KBO is partial on terms with variables).
+* `smtMin_le` — `smtMin t = t ∨ smtMin t ≺ₖ t`.
 
-## Derived theorems
-* `smtMin_resp` — for ground `s ≈ₜ t`, `smtMin s = smtMin t`.
+## Derived theorems (each indexed by Ext)
+* `smtMin_resp` — for runtime `s ≈ₜ t`, `smtMin s = smtMin t`.
 * `smtMin_strict` — if `smtMin t ≠ t`, then `smtMin t ≺ₖ t`.
 * `smtMin_size` — `size (smtMin t) ≤ size t`.
 -/
 
 namespace EnumRules
 
-variable {S : Signature}
+variable {S : Signature} {Ext : Type}
 
-instance : Nonempty (Term S → Term S) := ⟨fun x => x⟩
+instance : Nonempty (Term S Ext → Term S Ext) := ⟨fun x => x⟩
 
-noncomputable opaque smtMin : Term S → Term S
+noncomputable opaque smtMin : Term S Ext → Term S Ext
 
-axiom smtMin_equiv (t : Term S) : (smtMin t) ≈ₜ t
+axiom smtMin_equiv (t : Term S Ext) : (smtMin t) ≈ₜ t
 
-axiom smtMin_min {t : Term S} (u : Term S) (h : u ≈ₜ t) : ¬ (u ≺ₖ (smtMin t))
+axiom smtMin_min {t : Term S Ext} (u : Term S Ext) (h : u ≈ₜ t) : ¬ (u ≺ₖ (smtMin t))
 
-theorem smtMin_equiv_symm (t : Term S) : t ≈ₜ smtMin t :=
+theorem smtMin_equiv_symm (t : Term S Ext) : t ≈ₜ smtMin t :=
   equiv_symm (smtMin_equiv t)
 
-/-- `smtMin t` is either `t` itself or strictly KBO-smaller. Sound for
-any well-behaved oracle: when no comparable smaller equivalent exists
-(e.g., for non-ground `t` with KBO-incomparable equivalents), the
-oracle returns `t` itself. -/
-axiom smtMin_le (t : Term S) : smtMin t = t ∨ (smtMin t) ≺ₖ t
+axiom smtMin_le (t : Term S Ext) : smtMin t = t ∨ (smtMin t) ≺ₖ t
 
-/-- The oracle respects `≈ₜ`-equivalence on ground inputs. Two minima
-of the same class are KBO-comparable (by ground `kbo_total`), but
-neither is KBO-smaller than the other (by `smtMin_min`), so they are
-equal. The hypotheses are placed on `smtMin s` / `smtMin t` so that
-callers can supply them directly (e.g., from `I_can_smtMin_fixed`
-combined with groundness of an `I_can` member). -/
-theorem smtMin_resp {s t : Term S}
-    (hs : Term.IsGround (smtMin s)) (ht : Term.IsGround (smtMin t))
+theorem smtMin_resp {s t : Term S Ext}
+    (hs : Term.NoVar (smtMin s)) (ht : Term.NoVar (smtMin t))
     (h : s ≈ₜ t) : smtMin s = smtMin t := by
   have hst : (smtMin s) ≈ₜ t := equiv_trans (smtMin_equiv s) h
   have hts : (smtMin t) ≈ₜ s := equiv_trans (smtMin_equiv t) (equiv_symm h)
@@ -62,10 +46,10 @@ theorem smtMin_resp {s t : Term S}
   · exact absurd hlt (smtMin_min _ hst)
   · exact absurd hlt (smtMin_min _ hts)
 
-theorem smtMin_strict {t : Term S} (h : smtMin t ≠ t) : smtMin t ≺ₖ t :=
+theorem smtMin_strict {t : Term S Ext} (h : smtMin t ≠ t) : smtMin t ≺ₖ t :=
   (smtMin_le t).resolve_left h
 
-theorem smtMin_size (t : Term S) : Term.size (smtMin t) ≤ Term.size t := by
+theorem smtMin_size (t : Term S Ext) : Term.size (smtMin t) ≤ Term.size t := by
   rcases smtMin_le t with heq | hlt
   · rw [heq]
   · exact kbo_size_le hlt
