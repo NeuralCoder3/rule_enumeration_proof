@@ -6,28 +6,33 @@ open scoped Classical
 # Algorithm correctness: construction-saturation + common normal form
 
 ## Role
-Proves two completeness theorems:
+Proves two completeness theorems for the k-bounded rule set
+`R_can S k n` (size ≤ n, distinct-VC count ≤ k):
 
 * `complete_common_normal_form` (construction level) — for
-  `≈ₜ`-equivalent `Term S Empty` inputs `s, t` with `NoVar` and
-  size ≤ n, both reach the same irreducible normal form `c` via
-  rule rewriting.
+  `≈ₜ`-equivalent `Term S Empty` inputs `s, t` with `NoVar`, size ≤ n,
+  and `numDistinctVCs ≤ k`, both reach the same irreducible normal
+  form `c` via rule rewriting under `R_can S k n`.
 
 * `complete_runtime` (runtime level) — for `≈ₜ`-equivalent runtime
   `Term S Ext` inputs `s, t` with `IsRuntime`, size ≤ n, and with
   `(s.usedExt ∪ t.usedExt).card ≤ |S.C|`, both reach a common
-  rewrite-end-point via `R_can` rewriting on `Term S Ext`. The proof
-  lifts to `Term S Empty` via an injection `↑E ↪ S.C` (from the
-  cardinality bound, via `embExt`), invokes the construction-level
-  theorem, and pushes the rewrites back via `StepStar.subst`.
+  rewrite-end-point via `R_can S |S.C| n` rewriting on `Term S Ext`.
+  The proof lifts to `Term S Empty` via an injection `↑E ↪ S.C`,
+  invokes the construction-level theorem (with `k = |S.C|`), and
+  pushes the rewrites back via `StepStar.subst`.
 
 The proof of `complete_common_normal_form` rests on
 **construction-saturation** (`construction_saturation`, proved as a
-theorem): for `c : Term S Empty` with `NoVar`, R_can-irreducible at
-size ≤ n, we have `smtMin c = c`. The structural induction
-`construction_irreducible_in_I_can_at_size` shows that every `NoVar`
-irreducible term lies in `I_can`, from which `smtMin`-fixedness is
-immediate.
+theorem): for `c : Term S Empty` with `NoVar`, `numDistinctVCs c ≤ k`,
+and R_can-irreducible at size ≤ n, we have `smtMin c = c`. The
+structural induction `construction_irreducible_in_I_can_at_size`
+shows that every `NoVar` irreducible term satisfying the k-bound lies
+in `I_can`, from which `smtMin`-fixedness is immediate.
+
+The k-bound is preserved through rewriting (`Step.preserves_VCs`,
+`StepStar.preserves_VCs`), using the `smtMin_varSet` /
+`smtMin_constPSet` axioms.
 
 ## Axioms (2)
 * `smtMin_apply_NoVar` — `smtMin` doesn't introduce S.V variables
@@ -35,10 +40,13 @@ immediate.
 * `canonical_of_NoVar` — `NoVar` terms satisfy the `Canonical` filter
   (per-orbit selector, doesn't affect soundness).
 
-The runtime theorem also depends on `equiv_embExt` (in `Subst.lean`).
+Depends also on `equiv_embExt` (in `Subst.lean`) and `smtMin_varSet`,
+`smtMin_constPSet` (in `Oracle.lean`).
 
 ## Theorems
 * `Step.preserves_NoVar` / `StepStar.preserves_NoVar`.
+* `Step.preserves_VCs` / `StepStar.preserves_VCs` /
+  `StepStar.preserves_numDistinctVCs_le`.
 * `construction_irreducible_in_I_can_at_size` (private) /
   `construction_irreducible_in_I_can`.
 * `construction_saturation` — proved.
@@ -52,20 +60,20 @@ variable {S : Signature}
 
 /-! ## Structural facts about R_can / I_can over Term S Empty -/
 
-theorem R_can_subset {S : Signature} {m n : Nat} (h : m ≤ n) :
-    R_can S m ⊆ R_can S n := by
+theorem R_can_subset {S : Signature} {k m n : Nat} (h : m ≤ n) :
+    R_can S k m ⊆ R_can S k n := by
   induction h with
   | refl => exact Finset.Subset.refl _
   | step _ ih => intro x hx; rw [R_can]; exact Finset.mem_union_left _ (ih hx)
 
-theorem I_can_subset {S : Signature} {m n : Nat} (h : m ≤ n) :
-    I_can S m ⊆ I_can S n := by
+theorem I_can_subset {S : Signature} {k m n : Nat} (h : m ≤ n) :
+    I_can S k m ⊆ I_can S k n := by
   induction h with
   | refl => exact Finset.Subset.refl _
   | step _ ih => intro x hx; rw [I_can]; exact Finset.mem_union_left _ (ih hx)
 
 @[aesop safe forward]
-theorem mem_R_can_props {n : Nat} {l r : Term S Empty} (h : (l, r) ∈ R_can S n) :
+theorem mem_R_can_props {k n : Nat} {l r : Term S Empty} (h : (l, r) ∈ R_can S k n) :
     r = smtMin l ∧ l ≠ r := by
   induction n with
   | zero => simp [R_can] at h
@@ -76,13 +84,14 @@ theorem mem_R_can_props {n : Nat} {l r : Term S Empty} (h : (l, r) ∈ R_can S n
       · exact ih hPrev
       · exact ⟨rfl, Ne.symm hne⟩
 
-theorem mem_R_can_intro {n : Nat} {l : Term S Empty}
+theorem mem_R_can_intro {k n : Nat} {l : Term S Empty}
     (hsize : Term.size l ≤ n)
-    (hen : l ∈ renamingOrbit (termsFromIrreducible S (I_can S (Term.size l - 1)) (Term.size l)))
+    (hen : l ∈ renamingOrbit (termsFromIrreducible S (I_can S k (Term.size l - 1))
+                              k (Term.size l)))
     (hcan : Canonical l)
-    (hnsp : ¬ simplifiesWith (R_can S (Term.size l - 1)) l)
+    (hnsp : ¬ simplifiesWith (R_can S k (Term.size l - 1)) l)
     (hne : smtMin l ≠ l) :
-    (l, smtMin l) ∈ R_can S n := by
+    (l, smtMin l) ∈ R_can S k n := by
   refine R_can_subset hsize ?_
   have hsucc : Term.size l - 1 + 1 = Term.size l := by
     have := Term.size_pos l; omega
@@ -91,27 +100,27 @@ theorem mem_R_can_intro {n : Nat} {l : Term S Empty}
     ⟨l, Finset.mem_filter.mpr ⟨?_, hcan, hnsp, hne⟩, rfl⟩)
   rwa [hsucc]
 
-theorem rule_equiv_can {n : Nat} {l r : Term S Empty} (h : (l, r) ∈ R_can S n) :
+theorem rule_equiv_can {k n : Nat} {l r : Term S Empty} (h : (l, r) ∈ R_can S k n) :
     l ≈ₜ r := by
   obtain ⟨rfl, _⟩ := mem_R_can_props h
   exact equiv_symm (smtMin_equiv l)
 
-theorem rule_kbo_can {n : Nat} {l r : Term S Empty} (h : (l, r) ∈ R_can S n) :
+theorem rule_kbo_can {k n : Nat} {l r : Term S Empty} (h : (l, r) ∈ R_can S k n) :
     r ≺ₖ l := by
   obtain ⟨rfl, hne⟩ := mem_R_can_props h
   exact smtMin_strict (Ne.symm hne)
 
 /-! ## Termination + reaching a normal form -/
 
-theorem terminates_can {Ext : Type} (n : Nat) :
-    WellFounded (fun t s : Term S Ext => Step (R_can S n) s t) :=
+theorem terminates_can {Ext : Type} (k n : Nat) :
+    WellFounded (fun t s : Term S Ext => Step (R_can S k n) s t) :=
   Subrelation.wf (fun h => Step.kbo_of (fun hlr => rule_kbo_can hlr) h) kbo_wf
 
-theorem reaches_normal_form_can {Ext : Type} (n : Nat) (s : Term S Ext) :
-    ∃ s', StepStar (R_can S n) s s' ∧ ∀ u, ¬ Step (R_can S n) s' u := by
-  induction s using (terminates_can n).induction with
+theorem reaches_normal_form_can {Ext : Type} (k n : Nat) (s : Term S Ext) :
+    ∃ s', StepStar (R_can S k n) s s' ∧ ∀ u, ¬ Step (R_can S k n) s' u := by
+  induction s using (terminates_can k n).induction with
   | _ s ih =>
-      by_cases h : ∃ u, Step (R_can S n) s u
+      by_cases h : ∃ u, Step (R_can S k n) s u
       · obtain ⟨u, hu⟩ := h
         obtain ⟨s', hsu, hirr⟩ := ih u hu
         exact ⟨s', .head hu hsu, hirr⟩
@@ -119,7 +128,7 @@ theorem reaches_normal_form_can {Ext : Type} (n : Nat) (s : Term S Ext) :
 
 /-- `I_can` members are smtMin-fixed (built into the I_can filter). -/
 @[aesop safe forward]
-theorem I_can_smtMin_fixed {n : Nat} {c : Term S Empty} (hc : c ∈ I_can S n) :
+theorem I_can_smtMin_fixed {k n : Nat} {c : Term S Empty} (hc : c ∈ I_can S k n) :
     smtMin c = c := by
   induction n with
   | zero => simp [I_can] at hc
@@ -140,9 +149,9 @@ axiom smtMin_apply_NoVar {l : Term S Empty} {σ : Subst S Empty}
 
 /-! ## Step.preserves_NoVar — Step keeps the NoVar property -/
 
-/-- `Step (R_can S n)` preserves the `NoVar` property. -/
-theorem Step.preserves_NoVar {n : Nat} {s t : Term S Empty}
-    (h : Step (R_can S n) s t) (hg : Term.NoVar s) : Term.NoVar t := by
+/-- `Step (R_can S k n)` preserves the `NoVar` property. -/
+theorem Step.preserves_NoVar {k n : Nat} {s t : Term S Empty}
+    (h : Step (R_can S k n) s t) (hg : Term.NoVar s) : Term.NoVar t := by
   induction h with
   | @root l r σ hmem =>
       obtain ⟨rfl, _⟩ := mem_R_can_props hmem
@@ -153,19 +162,72 @@ theorem Step.preserves_NoVar {n : Nat} {s t : Term S Empty}
       · exact hj ▸ ih (hg i)
       · exact (hrest j hj).symm ▸ hg j
 
-/-- `StepStar (R_can S n)` preserves the `NoVar` property. -/
-theorem StepStar.preserves_NoVar {n : Nat} {s t : Term S Empty}
-    (h : StepStar (R_can S n) s t) (hg : Term.NoVar s) : Term.NoVar t := by
+/-- `StepStar (R_can S k n)` preserves the `NoVar` property. -/
+theorem StepStar.preserves_NoVar {k n : Nat} {s t : Term S Empty}
+    (h : StepStar (R_can S k n) s t) (hg : Term.NoVar s) : Term.NoVar t := by
   induction h with
   | refl => exact hg
   | tail _ hstep ih => exact Step.preserves_NoVar hstep ih
 
 /-- Rewriting under `R_can` doesn't grow size. -/
-theorem StepStar.size_le {Ext : Type} {n : Nat} {s t : Term S Ext}
-    (h : StepStar (R_can S n) s t) : Term.size t ≤ Term.size s := by
+theorem StepStar.size_le {Ext : Type} {k n : Nat} {s t : Term S Ext}
+    (h : StepStar (R_can S k n) s t) : Term.size t ≤ Term.size s := by
   rcases StepStar.kbo_of (fun hlr => rule_kbo_can hlr) h with heq | hlt
   · rw [heq]
   · exact kbo_size_le hlt
+
+/-! ## `Step (R_can)` doesn't introduce new vars or constPs
+
+Combined with `smtMin_varSet` / `smtMin_constPSet`, each step is
+`varSet ⊆`- and `constPSet ⊆`-shrinking, hence doesn't increase
+`numDistinctVCs`. This is essential to preserve the `k`-bound through
+rewriting. -/
+
+/-- `Step (R_can S k n)` doesn't introduce new variables or
+ConstPlaceholders. -/
+theorem Step.preserves_VCs {k n : Nat} {s t : Term S Empty}
+    (h : Step (R_can S k n) s t) :
+    t.varSet ⊆ s.varSet ∧ t.constPSet ⊆ s.constPSet := by
+  induction h with
+  | @root l r σ hmem =>
+      obtain ⟨rfl, _⟩ := mem_R_can_props hmem
+      exact ⟨apply_varSet_subset σ (smtMin_varSet l) (smtMin_constPSet l),
+             apply_constPSet_subset σ (smtMin_varSet l) (smtMin_constPSet l)⟩
+  | @ctx f as bs i _ hrest ih =>
+      refine ⟨?_, ?_⟩ <;> intro x hx
+      · rw [Term.varSet_node, Finset.mem_biUnion] at hx
+        obtain ⟨j, _, hj⟩ := hx
+        rw [Term.varSet_node, Finset.mem_biUnion]
+        refine ⟨j, Finset.mem_univ _, ?_⟩
+        by_cases hji : j = i
+        · exact hji ▸ ih.1 (hji ▸ hj)
+        · exact (hrest j hji).symm ▸ hj
+      · rw [Term.constPSet_node, Finset.mem_biUnion] at hx
+        obtain ⟨j, _, hj⟩ := hx
+        rw [Term.constPSet_node, Finset.mem_biUnion]
+        refine ⟨j, Finset.mem_univ _, ?_⟩
+        by_cases hji : j = i
+        · exact hji ▸ ih.2 (hji ▸ hj)
+        · exact (hrest j hji).symm ▸ hj
+
+/-- `StepStar (R_can S k n)` doesn't introduce new variables or
+ConstPlaceholders. -/
+theorem StepStar.preserves_VCs {k n : Nat} {s t : Term S Empty}
+    (h : StepStar (R_can S k n) s t) :
+    t.varSet ⊆ s.varSet ∧ t.constPSet ⊆ s.constPSet := by
+  induction h with
+  | refl => exact ⟨Finset.Subset.refl _, Finset.Subset.refl _⟩
+  | tail _ hstep ih =>
+      have := Step.preserves_VCs hstep
+      exact ⟨subset_trans this.1 ih.1, subset_trans this.2 ih.2⟩
+
+/-- `StepStar (R_can S k n)` doesn't increase `numDistinctVCs`. -/
+theorem StepStar.preserves_numDistinctVCs_le {k n : Nat} {s t : Term S Empty}
+    (h : StepStar (R_can S k n) s t) :
+    Term.numDistinctVCs t ≤ Term.numDistinctVCs s := by
+  have := StepStar.preserves_VCs h
+  unfold Term.numDistinctVCs
+  exact Nat.add_le_add (Finset.card_le_card this.1) (Finset.card_le_card this.2)
 
 /-! ## Construction-saturation: irreducible `NoVar` terms are smtMin-fixed -/
 
@@ -217,118 +279,124 @@ theorem not_simplifiesWith_empty {Ext : Type} {t : Term S Ext} :
   subst heq; omega
 
 /-- Auxiliary lemma: for a `NoVar`, R_can-irreducible term `t` of
-size ≤ n, `t ∈ I_can S n`. Proof by structural induction on `t`. -/
-private theorem construction_irreducible_in_I_can_at_size :
+size ≤ n and `numDistinctVCs t ≤ k`, `t ∈ I_can S k (Term.size t)`.
+Proof by structural induction on `t`. -/
+private theorem construction_irreducible_in_I_can_at_size (k : Nat) :
     ∀ (t : Term S Empty),
       Term.NoVar t →
-      (∀ u, ¬ Step (R_can S (Term.size t)) t u) →
-      t ∈ I_can S (Term.size t) := by
+      Term.numDistinctVCs t ≤ k →
+      (∀ u, ¬ Step (R_can S k (Term.size t)) t u) →
+      t ∈ I_can S k (Term.size t) := by
   intro t
   induction t with
-  | var v => intro hg _; exact hg.elim
-  | ext e => intro _ _; exact e.elim
+  | var v => intro hg _ _; exact hg.elim
+  | ext e => intro _ _ _; exact e.elim
   | constP c =>
-      intro hg hirr
-      -- size (constP c) = 1.
-      have hsize_one : Term.size (Term.constP (S := S) (Ext := Empty) c) = 1 := rfl
-      have hen_orbit :
-          Term.constP c ∈ renamingOrbit (termsFromIrreducible S (I_can S 0) 1) := by
-        apply self_mem_renamingOrbit
+      intro hg hk hirr
+      have hen : Term.constP (S := S) (Ext := Empty) c ∈
+          termsFromIrreducible S (I_can S k 0) k 1 := by
         rw [mem_termsFromIrreducible]
-        exact ⟨rfl, fun f' args' heq _ => by cases heq⟩
+        exact ⟨rfl, hk, fun f' args' heq _ => by cases heq⟩
+      have hen_orbit :
+          Term.constP c ∈ renamingOrbit (termsFromIrreducible S (I_can S k 0) k 1) :=
+        self_mem_renamingOrbit hen
       have hcan : Canonical (Term.constP (S := S) (Ext := Empty) c) :=
         canonical_of_NoVar hg
-      have hnsp : ¬ simplifiesWith (R_can S 0) (Term.constP (S := S) (Ext := Empty) c) := by
+      have hnsp : ¬ simplifiesWith (R_can S k 0) (Term.constP (S := S) (Ext := Empty) c) := by
         show ¬ simplifiesWith (∅ : RuleSet S) _
         exact not_simplifiesWith_empty
       have hsmt : smtMin (Term.constP (S := S) (Ext := Empty) c) = Term.constP c := by
         by_contra hne
         have hrule : (Term.constP c, smtMin (Term.constP (S := S) (Ext := Empty) c)) ∈
-                      R_can S 1 :=
+                      R_can S k 1 :=
           mem_R_can_intro (le_refl _) (by simpa using hen_orbit) hcan
             (by simpa using hnsp) hne
         exact hirr _ (Step.root_id hrule)
-      -- Assemble: constP c ∈ I_can S 1.
-      show Term.constP c ∈ I_can S 1
+      show Term.constP c ∈ I_can S k 1
       rw [show (1 : Nat) = 0 + 1 from rfl, I_can]
       exact Finset.mem_union_right _
         (Finset.mem_filter.mpr ⟨hen_orbit, hcan, hnsp, hsmt⟩)
   | node f args ih =>
-      intro hg hirr
+      intro hg hk hirr
       set N := Term.size (Term.node f args : Term S Empty)
-      have hN_pos : 0 < N := Term.size_pos _
-      have hargs_mem : ∀ i, args i ∈ I_can S (N - 1) := fun i =>
+      have hargs_k : ∀ i, Term.numDistinctVCs (args i) ≤ k := fun i =>
+        le_trans (Term.numDistinctVCs_arg_le args i) hk
+      have hargs_mem : ∀ i, args i ∈ I_can S k (N - 1) := fun i =>
         I_can_subset (by have := Term.size_arg_lt f args i; omega)
-          (ih i (hg i) fun u hstep => Step.irreducible_arg hirr u
+          (ih i (hg i) (hargs_k i) fun u hstep => Step.irreducible_arg hirr u
             (Step.lift (R_can_subset (Term.size_arg_lt f args i).le) hstep))
       have hen : (Term.node f args : Term S Empty) ∈
-          termsFromIrreducible S (I_can S (N - 1)) N :=
-        mem_termsFromIrreducible.mpr ⟨rfl, by aesop⟩
+          termsFromIrreducible S (I_can S k (N - 1)) k N :=
+        mem_termsFromIrreducible.mpr ⟨rfl, hk, by aesop⟩
       have hen_orbit : (Term.node f args : Term S Empty) ∈
-          renamingOrbit (termsFromIrreducible S (I_can S (N - 1)) N) :=
+          renamingOrbit (termsFromIrreducible S (I_can S k (N - 1)) k N) :=
         self_mem_renamingOrbit hen
       have hcan : Canonical (Term.node f args : Term S Empty) := canonical_of_NoVar hg
-      have hnsp : ¬ simplifiesWith (R_can S (N - 1)) (Term.node f args : Term S Empty) :=
+      have hnsp : ¬ simplifiesWith (R_can S k (N - 1)) (Term.node f args : Term S Empty) :=
         not_simplifiesWith_of_irreducible fun u hstep =>
           hirr u (Step.lift (R_can_subset (by omega)) hstep)
       have hsmt : smtMin (Term.node f args : Term S Empty) = Term.node f args := by
         by_contra hne
         have hrule : (Term.node f args, smtMin (Term.node f args : Term S Empty)) ∈
-                      R_can S N :=
+                      R_can S k N :=
           mem_R_can_intro (le_refl _) hen_orbit hcan hnsp hne
         exact hirr _ (Step.root_id hrule)
-      have hsucc : N - 1 + 1 = N := by omega
+      have hsucc : N - 1 + 1 = N := by have := Term.size_pos (Term.node f args); omega
       rw [show N = N - 1 + 1 from hsucc.symm, I_can]
       exact Finset.mem_union_right _
         (Finset.mem_filter.mpr ⟨hsucc ▸ hen_orbit, hcan, hnsp, hsmt⟩)
 
-/-- For a `NoVar` `t : Term S Empty` of size ≤ n that is R_can-irreducible,
-`t ∈ I_can S n`. The general case follows from the size-bounded auxiliary
-by `I_can_subset` and `R_can_subset`. -/
-theorem construction_irreducible_in_I_can {n : Nat} {t : Term S Empty}
+/-- For a `NoVar` `t : Term S Empty` of size ≤ n with `numDistinctVCs t ≤ k`
+that is R_can-irreducible, `t ∈ I_can S k n`. -/
+theorem construction_irreducible_in_I_can {k n : Nat} {t : Term S Empty}
     (hsize : Term.size t ≤ n)
-    (hg : Term.NoVar t)
-    (hirr : ∀ u, ¬ Step (R_can S n) t u) : t ∈ I_can S n := by
+    (hg : Term.NoVar t) (hk : Term.numDistinctVCs t ≤ k)
+    (hirr : ∀ u, ¬ Step (R_can S k n) t u) : t ∈ I_can S k n := by
   apply I_can_subset hsize
-  apply construction_irreducible_in_I_can_at_size t hg
+  apply construction_irreducible_in_I_can_at_size k t hg hk
   intro u hstep
   exact hirr u (Step.lift (R_can_subset hsize) hstep)
 
-/-- **Construction-saturation**: a `NoVar` term in `Term S Empty` that
-is R_can-irreducible at size ≤ n is its own `smtMin`. -/
-theorem construction_saturation {n : Nat} {c : Term S Empty}
+/-- **Construction-saturation**: a `NoVar` term in `Term S Empty` with
+`numDistinctVCs t ≤ k` that is R_can-irreducible at size ≤ n is its
+own `smtMin`. -/
+theorem construction_saturation {k n : Nat} {c : Term S Empty}
     (hsize : Term.size c ≤ n)
-    (hg : Term.NoVar c)
-    (hirr : ∀ u, ¬ Step (R_can S n) c u) : smtMin c = c := by
-  have hc_mem : c ∈ I_can S n :=
-    construction_irreducible_in_I_can hsize hg hirr
+    (hg : Term.NoVar c) (hk : Term.numDistinctVCs c ≤ k)
+    (hirr : ∀ u, ¬ Step (R_can S k n) c u) : smtMin c = c := by
+  have hc_mem : c ∈ I_can S k n :=
+    construction_irreducible_in_I_can hsize hg hk hirr
   exact I_can_smtMin_fixed hc_mem
 
 /-! ## Common normal form theorem (construction level, `Term S Empty`) -/
 
 /-- **Common normal form theorem at `Term S Empty`**: for any pair of
-`≈ₜ`-equivalent `Term S Empty` terms with no S.V variables (`NoVar`)
-and size ≤ n, both reach the same irreducible normal form via rule
-rewriting alone. -/
+`≈ₜ`-equivalent `Term S Empty` terms with no S.V variables (`NoVar`),
+size ≤ n, and distinct-VC count ≤ k, both reach the same irreducible
+normal form via rule rewriting alone. -/
 theorem complete_common_normal_form
-    (n : Nat) {s t : Term S Empty}
+    (k n : Nat) {s t : Term S Empty}
     (hs_NoVar : Term.NoVar s) (ht_NoVar : Term.NoVar t)
-    (hs_size : Term.size s ≤ n) (ht_size : Term.size t ≤ n) (hst : s ≈ₜ t) :
+    (hs_size : Term.size s ≤ n) (ht_size : Term.size t ≤ n)
+    (hs_k : Term.numDistinctVCs s ≤ k) (ht_k : Term.numDistinctVCs t ≤ k)
+    (hst : s ≈ₜ t) :
     ∃ c, Term.NoVar c ∧
-         StepStar (R_can S n) s c ∧
-         StepStar (R_can S n) t c := by
-  obtain ⟨s', hss', hs_irr⟩ := reaches_normal_form_can n s
-  obtain ⟨t', htt', ht_irr⟩ := reaches_normal_form_can n t
+         StepStar (R_can S k n) s c ∧
+         StepStar (R_can S k n) t c := by
+  obtain ⟨s', hss', hs_irr⟩ := reaches_normal_form_can k n s
+  obtain ⟨t', htt', ht_irr⟩ := reaches_normal_form_can k n t
   have hs'_g := StepStar.preserves_NoVar hss' hs_NoVar
   have ht'_g := StepStar.preserves_NoVar htt' ht_NoVar
   have hs'_size := le_trans (StepStar.size_le hss') hs_size
   have ht'_size := le_trans (StepStar.size_le htt') ht_size
+  have hs'_k := le_trans (StepStar.preserves_numDistinctVCs_le hss') hs_k
+  have ht'_k := le_trans (StepStar.preserves_numDistinctVCs_le htt') ht_k
   have hs_eq := StepStar.equiv_of (fun h => rule_equiv_can h) hss'
   have ht_eq := StepStar.equiv_of (fun h => rule_equiv_can h) htt'
   have hst' : s' ≈ₜ t' :=
     equiv_trans (equiv_symm hs_eq) (equiv_trans hst ht_eq)
-  have hsm_s : smtMin s' = s' := construction_saturation hs'_size hs'_g hs_irr
-  have hsm_t : smtMin t' = t' := construction_saturation ht'_size ht'_g ht_irr
+  have hsm_s : smtMin s' = s' := construction_saturation hs'_size hs'_g hs'_k hs_irr
+  have hsm_t : smtMin t' = t' := construction_saturation ht'_size ht'_g ht'_k ht_irr
   have h_eq : smtMin s' = smtMin t' :=
     smtMin_resp (hsm_s.symm ▸ hs'_g) (hsm_t.symm ▸ ht'_g) hst'
   have hs't' : s' = t' := by
@@ -351,7 +419,8 @@ substitution. -/
 
 /-- **Common normal form theorem at `Term S Ext` (runtime)**: for any
 pair of `≈ₜ`-equivalent runtime terms whose distinct ext-leaves fit
-into `|S.C|`, both reach the same rewrite-end-point via `R_can`. -/
+into `|S.C|`, both reach the same rewrite-end-point via
+`R_can S |S.C| n`. -/
 theorem complete_runtime
     {Ext : Type} [DecidableEq Ext] [Nonempty S.C]
     (n : Nat) {s t : Term S Ext}
@@ -359,7 +428,8 @@ theorem complete_runtime
     (hs_size : Term.size s ≤ n) (ht_size : Term.size t ≤ n)
     (hcard : (s.usedExt ∪ t.usedExt).card ≤ Fintype.card S.C)
     (hst : s ≈ₜ t) :
-    ∃ c, StepStar (R_can S n) s c ∧ StepStar (R_can S n) t c := by
+    ∃ c, StepStar (R_can S (Fintype.card S.C) n) s c ∧
+         StepStar (R_can S (Fintype.card S.C) n) t c := by
   set E := s.usedExt ∪ t.usedExt with hE_def
   have hE_card : Fintype.card (↑E : Type _) ≤ Fintype.card S.C := by
     simpa [Fintype.card_coe] using hcard
@@ -382,9 +452,18 @@ theorem complete_runtime
   have hs'_size : Term.size s' ≤ n := by rw [hs'_def, Term.size_embExt]; exact hs_size
   have ht'_size : Term.size t' ≤ n := by rw [ht'_def, Term.size_embExt]; exact ht_size
   have hst' : s' ≈ₜ t' := equiv_embExt hs ht f hf_inj hst
+  -- The lifted terms' distinct-VC count is bounded by |S.C| (no vars,
+  -- constPs all from `f`'s image which has card ≤ |S.C|).
+  have hs'_k : Term.numDistinctVCs s' ≤ Fintype.card S.C := by
+    rw [Term.numDistinctVCs_of_NoVar hs'_NoVar]
+    exact le_trans (Finset.card_le_univ _) (le_refl _)
+  have ht'_k : Term.numDistinctVCs t' ≤ Fintype.card S.C := by
+    rw [Term.numDistinctVCs_of_NoVar ht'_NoVar]
+    exact le_trans (Finset.card_le_univ _) (le_refl _)
   -- Apply the construction-level theorem.
   obtain ⟨c', _, hsc', htc'⟩ :=
-    complete_common_normal_form n hs'_NoVar ht'_NoVar hs'_size ht'_size hst'
+    complete_common_normal_form (Fintype.card S.C) n
+      hs'_NoVar ht'_NoVar hs'_size ht'_size hs'_k ht'_k hst'
   -- Push the rewrites back via the inverse substitution.
   let σ := Subst.invEmb E f
   have hs_inv : apply σ s' = s :=

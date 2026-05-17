@@ -174,4 +174,92 @@ theorem NoVar_embExt (f : Ext → S.C) {t : Term S Ext} (h : NoVar t) :
   | node f' args ih => intro i; exact ih i (h i)
   | ext e       => trivial
 
+/-- The Finset of S.V variables appearing in a term. -/
+def varSet : Term S Ext → Finset S.V
+  | .var v       => {v}
+  | .constP _    => ∅
+  | .node _ args => (Finset.univ : Finset (Fin _)).biUnion (fun i => varSet (args i))
+  | .ext _       => ∅
+termination_by structural t => t
+
+/-- The Finset of S.C ConstPlaceholders appearing in a term. -/
+def constPSet : Term S Ext → Finset S.C
+  | .var _       => ∅
+  | .constP c    => {c}
+  | .node _ args => (Finset.univ : Finset (Fin _)).biUnion (fun i => constPSet (args i))
+  | .ext _       => ∅
+termination_by structural t => t
+
+/-- The total number of *distinct* variables and ConstPlaceholders
+appearing in a term. Used as the `k` parameter bounding rule
+construction in `R_can S k n` / `I_can S k n`. -/
+def numDistinctVCs (t : Term S Ext) : Nat :=
+  t.varSet.card + t.constPSet.card
+
+@[simp] theorem varSet_var (v : S.V) :
+    varSet (Term.var (Ext := Ext) v) = {v} := rfl
+
+@[simp] theorem varSet_constP (c : S.C) :
+    varSet (Term.constP (Ext := Ext) c) = (∅ : Finset S.V) := rfl
+
+@[simp] theorem varSet_node {f : S.σ} (args : Fin (S.arity f) → Term S Ext) :
+    varSet (Term.node f args) =
+      (Finset.univ : Finset (Fin _)).biUnion (fun i => varSet (args i)) := rfl
+
+@[simp] theorem varSet_ext (e : Ext) :
+    varSet (Term.ext (S := S) e) = (∅ : Finset S.V) := rfl
+
+@[simp] theorem constPSet_var (v : S.V) :
+    constPSet (Term.var (Ext := Ext) v) = (∅ : Finset S.C) := rfl
+
+@[simp] theorem constPSet_constP (c : S.C) :
+    constPSet (Term.constP (Ext := Ext) c) = {c} := rfl
+
+@[simp] theorem constPSet_node {f : S.σ} (args : Fin (S.arity f) → Term S Ext) :
+    constPSet (Term.node f args) =
+      (Finset.univ : Finset (Fin _)).biUnion (fun i => constPSet (args i)) := rfl
+
+@[simp] theorem constPSet_ext (e : Ext) :
+    constPSet (Term.ext (S := S) e) = (∅ : Finset S.C) := rfl
+
+theorem varSet_arg_subset {f : S.σ} (args : Fin (S.arity f) → Term S Ext)
+    (i : Fin (S.arity f)) : varSet (args i) ⊆ varSet (Term.node f args) := by
+  intro v hv
+  simp only [varSet_node, Finset.mem_biUnion, Finset.mem_univ, true_and]
+  exact ⟨i, hv⟩
+
+theorem constPSet_arg_subset {f : S.σ} (args : Fin (S.arity f) → Term S Ext)
+    (i : Fin (S.arity f)) : constPSet (args i) ⊆ constPSet (Term.node f args) := by
+  intro c hc
+  simp only [constPSet_node, Finset.mem_biUnion, Finset.mem_univ, true_and]
+  exact ⟨i, hc⟩
+
+theorem numDistinctVCs_arg_le {f : S.σ} (args : Fin (S.arity f) → Term S Ext)
+    (i : Fin (S.arity f)) :
+    numDistinctVCs (args i) ≤ numDistinctVCs (Term.node f args) := by
+  unfold numDistinctVCs
+  exact Nat.add_le_add (Finset.card_le_card (varSet_arg_subset args i))
+                        (Finset.card_le_card (constPSet_arg_subset args i))
+
+/-- For a `NoVar` term, `varSet` is empty. -/
+theorem varSet_eq_empty_of_NoVar {t : Term S Ext} (h : NoVar t) :
+    t.varSet = ∅ := by
+  induction t with
+  | var v       => exact h.elim
+  | constP _    => rfl
+  | node f args ih =>
+      rw [varSet_node]
+      rw [Finset.eq_empty_iff_forall_notMem]
+      intro v hv
+      simp only [Finset.mem_biUnion, Finset.mem_univ, true_and] at hv
+      obtain ⟨i, hi⟩ := hv
+      rw [ih i (h i)] at hi
+      exact (Finset.notMem_empty v) hi
+  | ext _       => rfl
+
+/-- For a `NoVar` term, `numDistinctVCs` is just `constPSet.card`. -/
+theorem numDistinctVCs_of_NoVar {t : Term S Ext} (h : NoVar t) :
+    numDistinctVCs t = t.constPSet.card := by
+  simp [numDistinctVCs, varSet_eq_empty_of_NoVar h]
+
 end Term

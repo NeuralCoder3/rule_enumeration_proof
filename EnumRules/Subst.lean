@@ -121,6 +121,63 @@ theorem apply_comp {Ext : Type} (ρ : Subst S Ext) (σ : Subst S Empty)
   | node f args ih => simp [apply_node, ih]
   | ext e => exact Empty.elim e
 
+/-! ## How `apply σ` interacts with `varSet` and `constPSet` -/
+
+theorem apply_varSet {Ext : Type} (σ : Subst S Ext) (t : Term S Empty) :
+    (apply σ t).varSet =
+      t.varSet.biUnion (fun v => (σ.varM v).varSet) ∪
+      t.constPSet.biUnion (fun c => (σ.constPM c).varSet) := by
+  induction t with
+  | var v =>
+      simp [apply_var, Term.varSet_var, Term.constPSet_var]
+  | constP c =>
+      simp [apply_constP, Term.varSet_constP, Term.constPSet_constP]
+  | node f args ih =>
+      rw [apply_node, Term.varSet_node, Term.varSet_node, Term.constPSet_node]
+      rw [Finset.biUnion_biUnion, Finset.biUnion_biUnion]
+      rw [← Finset.biUnion_union]
+      apply Finset.biUnion_congr rfl
+      intro i _
+      exact ih i
+  | ext e => exact e.elim
+
+theorem apply_constPSet {Ext : Type} (σ : Subst S Ext) (t : Term S Empty) :
+    (apply σ t).constPSet =
+      t.varSet.biUnion (fun v => (σ.varM v).constPSet) ∪
+      t.constPSet.biUnion (fun c => (σ.constPM c).constPSet) := by
+  induction t with
+  | var v =>
+      simp [apply_var, Term.varSet_var, Term.constPSet_var]
+  | constP c =>
+      simp [apply_constP, Term.varSet_constP, Term.constPSet_constP]
+  | node f args ih =>
+      rw [apply_node, Term.constPSet_node, Term.varSet_node, Term.constPSet_node]
+      rw [Finset.biUnion_biUnion, Finset.biUnion_biUnion]
+      rw [← Finset.biUnion_union]
+      apply Finset.biUnion_congr rfl
+      intro i _
+      exact ih i
+  | ext e => exact e.elim
+
+/-- Monotonicity of `apply σ` on `varSet` and `constPSet`: if both sets
+of `t₁` are contained in those of `t₂`, then so are those of
+`apply σ t₁` in `apply σ t₂`. -/
+theorem apply_varSet_subset {Ext : Type} (σ : Subst S Ext)
+    {t₁ t₂ : Term S Empty}
+    (hv : t₁.varSet ⊆ t₂.varSet) (hc : t₁.constPSet ⊆ t₂.constPSet) :
+    (apply σ t₁).varSet ⊆ (apply σ t₂).varSet := by
+  rw [apply_varSet, apply_varSet]
+  exact Finset.union_subset_union (Finset.biUnion_subset_biUnion_of_subset_left _ hv)
+                                   (Finset.biUnion_subset_biUnion_of_subset_left _ hc)
+
+theorem apply_constPSet_subset {Ext : Type} (σ : Subst S Ext)
+    {t₁ t₂ : Term S Empty}
+    (hv : t₁.varSet ⊆ t₂.varSet) (hc : t₁.constPSet ⊆ t₂.constPSet) :
+    (apply σ t₁).constPSet ⊆ (apply σ t₂).constPSet := by
+  rw [apply_constPSet, apply_constPSet]
+  exact Finset.union_subset_union (Finset.biUnion_subset_biUnion_of_subset_left _ hv)
+                                   (Finset.biUnion_subset_biUnion_of_subset_left _ hc)
+
 /-! ## Inverse substitution for `Term.embExt`
 
 Given a Finset `E : Finset Ext` and `f : Ext → S.C` that is *injective

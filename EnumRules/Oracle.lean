@@ -8,10 +8,12 @@ import EnumRules.Kbo
 `smtMin t` is the SMT oracle's choice of `≺ₖ`-minimum element in
 `t`'s `≈ₜ`-class. Indexed by the runtime extension type `Ext`.
 
-## Axioms (3) — each is a family indexed by `Ext`
+## Axioms (5) — each is a family indexed by `Ext`
 * `smtMin_equiv` — `smtMin t ≈ₜ t`.
 * `smtMin_min` — no `≈ₜ`-equivalent term is `≺ₖ`-smaller than `smtMin t`.
 * `smtMin_le` — `smtMin t = t ∨ smtMin t ≺ₖ t`.
+* `smtMin_varSet` — `(smtMin t).varSet ⊆ t.varSet`.
+* `smtMin_constPSet` — `(smtMin t).constPSet ⊆ t.constPSet`.
 
 ## Derived theorems (each indexed by Ext)
 * `smtMin_resp` — for runtime `s ≈ₜ t`, `smtMin s = smtMin t`.
@@ -35,6 +37,20 @@ theorem smtMin_equiv_symm (t : Term S Ext) : t ≈ₜ smtMin t :=
   equiv_symm (smtMin_equiv t)
 
 axiom smtMin_le (t : Term S Ext) : smtMin t = t ∨ (smtMin t) ≺ₖ t
+
+/-- `smtMin` doesn't introduce new variables: its `varSet` is a
+subset of the input's `varSet`. -/
+axiom smtMin_varSet (t : Term S Ext) : (smtMin t).varSet ⊆ t.varSet
+
+/-- `smtMin` doesn't introduce new ConstPlaceholders. -/
+axiom smtMin_constPSet (t : Term S Ext) : (smtMin t).constPSet ⊆ t.constPSet
+
+/-- `smtMin` doesn't increase the distinct-VC count. -/
+theorem smtMin_numDistinctVCs_le (t : Term S Ext) :
+    Term.numDistinctVCs (smtMin t) ≤ Term.numDistinctVCs t := by
+  unfold Term.numDistinctVCs
+  exact Nat.add_le_add (Finset.card_le_card (smtMin_varSet t))
+                        (Finset.card_le_card (smtMin_constPSet t))
 
 theorem smtMin_resp {s t : Term S Ext}
     (hs : Term.NoVar (smtMin s)) (ht : Term.NoVar (smtMin t))
